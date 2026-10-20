@@ -106,5 +106,20 @@ class QmlLibraryAllTrackSource : public QmlLibraryAbstractSource {
     std::unique_ptr<AllTrackLibraryFeature> m_pLibraryFeature;
 };
 
+class QmlLibraryPlaylistSource : public QmlLibraryAbstractSource {
+    Q_OBJECT
+    QML_NAMED_ELEMENT(LibraryPlaylistSource)
+  public:
+    explicit QmlLibraryPlaylistSource(QObject* parent = nullptr,
+            const QList<QmlLibraryTrackListColumn*>& columns = {});
+
+    LibraryFeature* internal() override {
+        return m_pLibraryFeature.get();
+    }
+
+  private:
+    std::unique_ptr<PlaylistFeature> m_pLibraryFeature;
+};
+
 } // namespace qml
 } // namespace mixxx

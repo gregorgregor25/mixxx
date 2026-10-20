@@ -35,6 +35,10 @@ class AnalysisFeature : public LibraryFeature {
   signals:
     void analysisActive(bool bActive);
     void trackProgress(TrackId trackId, AnalyzerProgress progress);
+    void batchAnalysisStateChanged(bool active,
+            int completedTracks,
+            int totalTracks,
+            double currentTrackProgress);
 
   public slots:
     void activate() override;
@@ -45,6 +49,7 @@ class AnalysisFeature : public LibraryFeature {
     void stopAnalysis();
 
   private slots:
+    void onBatchTrackProgress(TrackId trackId, AnalyzerProgress progress);
     void onTrackAnalysisSchedulerProgress(AnalyzerProgress currentTrackProgress, int currentTrackNumber, int totalTracksCount);
     void onTrackAnalysisSchedulerFinished();
 
@@ -67,4 +72,7 @@ class AnalysisFeature : public LibraryFeature {
 
     // The title is dynamic and reflects the current progress
     QString m_title;
+    int m_batchCompletedTracks = 0;
+    int m_batchTotalTracks = 0;
+    double m_batchCurrentTrackProgress = 0;
 };

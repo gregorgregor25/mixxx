@@ -1,5 +1,6 @@
 #include "effects/backends/builtin/filtereffect.h"
 
+#include "effects/backends/builtin/flx6resonancecurve.h"
 #include "effects/backends/effectmanifest.h"
 #include "engine/effects/engineeffectparameter.h"
 #include "engine/filters/enginefilterbiquad1.h"
@@ -66,6 +67,21 @@ EffectManifestPointer FilterEffect::getManifest() {
     return pManifest;
 }
 
+QString Flx6ResonantFilterEffect::getId() {
+    return "org.mixxx.effects.flx6resonantfilter";
+}
+
+EffectManifestPointer Flx6ResonantFilterEffect::getManifest() {
+    auto pManifest = FilterEffect::getManifest();
+    pManifest->setId(getId());
+    pManifest->setName(QObject::tr("FLX6 Resonant Filter"));
+    pManifest->setShortName(QObject::tr("FLX6 Resonant Filter"));
+    pManifest->parameter(1)->setRange(0.4,
+            mixxx::flx6filter::kFlatQ,
+            mixxx::flx6filter::kWildQ);
+    return pManifest;
+}
+
 FilterGroupState::FilterGroupState(const mixxx::EngineParameters& engineParameters)
         : EffectState(engineParameters),
           m_loFreq(kMaxCorner),
@@ -117,16 +133,18 @@ void FilterEffect::processChannel(
         // Determined empirically at 1000 Hz
         double ratio = hpf / lpf;
         double clampedQ = q;
-        if (ratio < 1.414 && ratio >= 1) {
-            ratio -= 1;
-            double qmax = 2 + ratio * ratio * ratio * 29;
-            clampedQ = math_min(clampedQ, qmax);
-        } else if (ratio < 1 && ratio >= 0.7) {
-            clampedQ = math_min(clampedQ, 2.0);
-        } else if (ratio < 0.7 && ratio > 0.1) {
-            ratio -= 0.1;
-            double qmax = 4 - 2 / 0.6 * ratio;
-            clampedQ = math_min(clampedQ, qmax);
+        if (!m_extendedResonance || (hpf > kMinCorner && lpf < kMaxCorner)) {
+            if (ratio < 1.414 && ratio >= 1) {
+                ratio -= 1;
+                double qmax = 2 + ratio * ratio * ratio * 29;
+                clampedQ = math_min(clampedQ, qmax);
+            } else if (ratio < 1 && ratio >= 0.7) {
+                clampedQ = math_min(clampedQ, 2.0);
+            } else if (ratio < 0.7 && ratio > 0.1) {
+                ratio -= 0.1;
+                double qmax = 4 - 2 / 0.6 * ratio;
+                clampedQ = math_min(clampedQ, qmax);
+            }
         }
         pState->m_pLowFilter->setFrequencyCorners(engineParameters.sampleRate(), lpf, clampedQ);
         pState->m_pHighFilter->setFrequencyCorners(engineParameters.sampleRate(), hpf, clampedQ);

@@ -1,14 +1,20 @@
 #include "qml/qmllibraryproxy.h"
 
 #include <QAbstractItemModel>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QLocale>
 #include <QQmlEngine>
 #include <QSqlDatabase>
 #include <QStringList>
+#include <QTimer>
+#include <QVariantMap>
 #include <cmath>
+#include <utility>
 
 #include "control/controlobject.h"
 #include "library/dao/analysisdao.h"
+#include "library/dao/playlistdao.h"
 #include "library/library.h"
 #include "library/library_prefs.h"
 #include "library/librarytablemodel.h"
@@ -22,9 +28,12 @@
 #include "qml/qmlconfigproxy.h"
 #include "qml/qmllibrarytracklistmodel.h"
 #include "qmltrackproxy.h"
+#include "sources/soundsourceproxy.h"
 #include "track/cue.h"
 #include "track/track.h"
+#include "track/trackref.h"
 #include "util/assert.h"
+#include "util/cmdlineargs.h"
 #include "util/db/dbconnectionpooled.h"
 
 namespace mixxx {
@@ -166,6 +175,19 @@ QmlLibraryProxy::QmlLibraryProxy(QObject* parent)
             &QmlLibraryScannerProxy::stateChanged,
             this,
             &QmlLibraryProxy::libraryScanActiveChanged);
+    connect(s_pLibrary.get(),
+            &Library::batchAnalysisStateChanged,
+            this,
+            [this](bool active,
+                    int completedTracks,
+                    int totalTracks,
+                    double currentTrackProgress) {
+                m_analysisActive = active;
+                m_analysisCompletedTracks = completedTracks;
+                m_analysisTotalTracks = totalTracks;
+                m_analysisCurrentTrackProgress = currentTrackProgress;
+                emit analysisProgressChanged();
+            });
     TrackCollectionManager* pTrackCollectionManager =
             s_pLibrary->trackCollectionManager();
     VERIFY_OR_DEBUG_ASSERT(pTrackCollectionManager) {
@@ -317,6 +339,144 @@ void QmlLibraryProxy::createPlaylist() {
         return;
     }
     s_pLibrary->slotCreatePlaylist();
+}
+
+QVariantList QmlLibraryProxy::copiedMusicFolders() const {
+    QDir settingsDir(CmdlineArgs::Instance().getSettingsPath());
+    if (!settingsDir.cdUp() || !settingsDir.cd(QStringLiteral("Music"))) {
+        return {};
+    }
+
+    QVariantList folders;
+    for (const QFileInfo& folder : settingsDir.entryInfoList(
+                 QDir::Dirs | QDir::NoDotAndDotDot,
+                 QDir::Name | QDir::IgnoreCase)) {
+        folders.append(QVariantMap{{QStringLiteral("name"), folder.fileName()},
+                {QStringLiteral("directory"),
+                        QUrl::fromLocalFile(folder.absoluteFilePath())}});
+    }
+    return folders;
+}
+
+void QmlLibraryProxy::importFolderPlaylist(
+        const QUrl& directory, const QString& playlistName) {
+    const QString name = playlistName.trimmed();
+    if (m_playlistImportIterator) {
+        emit folderPlaylistImportFinished(name, 0, 0, 0, tr("An import is already running."));
+        return;
+    }
+
+    const QString path = directory.toLocalFile();
+    const QFileInfo folder(path);
+    if (name.isEmpty() || !directory.isLocalFile() || !folder.isDir() ||
+            !folder.isReadable()) {
+        emit folderPlaylistImportFinished(name,
+                0,
+                0,
+                0,
+                tr("The playlist name or music folder is invalid or unreadable."));
+        return;
+    }
+
+    m_playlistImportName = name;
+    m_playlistImportId = kInvalidPlaylistId;
+    m_playlistImportSupportedFiles = 0;
+    m_playlistImportAddedTracks = 0;
+    m_playlistImportFailedFiles = 0;
+    m_playlistImportTrackIds.clear();
+    m_playlistImportAnalysisTrackIds.clear();
+    m_playlistImportAnalysisIds.clear();
+    m_playlistImportIterator = std::make_unique<QDirIterator>(path,
+            QDir::Files | QDir::NoDotAndDotDot,
+            QDirIterator::Subdirectories);
+    QTimer::singleShot(0, this, &QmlLibraryProxy::processFolderPlaylistImportBatch);
+}
+
+void QmlLibraryProxy::processFolderPlaylistImportBatch() {
+    if (!m_playlistImportIterator) {
+        return;
+    }
+
+    PlaylistDAO& playlistDao = m_pTrackCollectionManager->internalCollection()->getPlaylistDAO();
+    constexpr int kTracksPerBatch = 4;
+    int processed = 0;
+    while (processed < kTracksPerBatch && m_playlistImportIterator->hasNext()) {
+        const mixxx::FileInfo file(m_playlistImportIterator->next());
+        ++processed;
+        if (!SoundSourceProxy::isFileSupported(file)) {
+            continue;
+        }
+        ++m_playlistImportSupportedFiles;
+
+        if (m_playlistImportId == kInvalidPlaylistId) {
+            m_playlistImportId = playlistDao.getPlaylistIdFromName(m_playlistImportName);
+            if (m_playlistImportId == kInvalidPlaylistId) {
+                m_playlistImportId = playlistDao.createPlaylist(m_playlistImportName);
+            }
+            if (m_playlistImportId == kInvalidPlaylistId) {
+                finishFolderPlaylistImport(tr("Could not create the playlist."));
+                return;
+            }
+            if (playlistDao.getHiddenType(m_playlistImportId) !=
+                            PlaylistDAO::PLHT_NOT_HIDDEN ||
+                    playlistDao.isPlaylistLocked(m_playlistImportId)) {
+                finishFolderPlaylistImport(tr("A hidden or locked playlist already uses this name."));
+                return;
+            }
+            const QList<TrackId> existingIds = playlistDao.getTrackIds(m_playlistImportId);
+            for (const TrackId trackId : existingIds) {
+                m_playlistImportTrackIds.insert(trackId);
+            }
+        }
+
+        const TrackPointer track = m_pTrackCollectionManager->getOrAddTrack(
+                TrackRef::fromFilePath(file.location()));
+        if (!track || !track->getId().isValid()) {
+            ++m_playlistImportFailedFiles;
+            continue;
+        }
+        const TrackId trackId = track->getId();
+        if (!m_playlistImportAnalysisIds.contains(trackId)) {
+            m_playlistImportAnalysisIds.insert(trackId);
+            m_playlistImportAnalysisTrackIds.append(trackId);
+        }
+        if (m_playlistImportTrackIds.contains(trackId)) {
+            continue;
+        }
+        if (!playlistDao.appendTrackToPlaylist(trackId, m_playlistImportId)) {
+            finishFolderPlaylistImport(tr("Could not add a track to the playlist."));
+            return;
+        }
+        m_playlistImportTrackIds.insert(trackId);
+        ++m_playlistImportAddedTracks;
+    }
+
+    if (m_playlistImportIterator->hasNext()) {
+        QTimer::singleShot(0, this, &QmlLibraryProxy::processFolderPlaylistImportBatch);
+    } else if (m_playlistImportSupportedFiles == 0) {
+        finishFolderPlaylistImport(tr("No supported audio files were found."));
+    } else if (m_playlistImportFailedFiles != 0) {
+        finishFolderPlaylistImport(tr("Some audio files could not be imported."));
+    } else {
+        finishFolderPlaylistImport();
+    }
+}
+
+void QmlLibraryProxy::finishFolderPlaylistImport(const QString& error) {
+    QList<AnalyzerScheduledTrack> analysisTracks;
+    analysisTracks.reserve(m_playlistImportAnalysisTrackIds.size());
+    for (const TrackId trackId : std::as_const(m_playlistImportAnalysisTrackIds)) {
+        analysisTracks.append(trackId);
+    }
+    m_playlistImportIterator.reset();
+    if (!analysisTracks.isEmpty()) {
+        emit s_pLibrary->analyzeTracks(analysisTracks);
+    }
+    emit folderPlaylistImportFinished(m_playlistImportName,
+            m_playlistImportSupportedFiles,
+            m_playlistImportAddedTracks,
+            analysisTracks.size(),
+            error);
 }
 
 bool QmlLibraryProxy::enginePrimeExportAvailable() const {

@@ -18,6 +18,7 @@ class WaveformRendererSignalBase : public QObject, public WaveformRendererAbstra
         None = 0b0,
         SplitStereoSignal = 0b1,
         HighDetail = 0b10,
+        OriginalTrack = 0b100,
         AllOptionsCombined = SplitStereoSignal | HighDetail,
     };
     Q_DECLARE_FLAGS(Options, Option)
@@ -72,6 +73,7 @@ class WaveformRendererSignalBase : public QObject, public WaveformRendererAbstra
     CSAMPLE_GAIN m_lowVisualGain;
     CSAMPLE_GAIN m_midVisualGain;
     CSAMPLE_GAIN m_highVisualGain;
+    bool m_originalTrack;
 
     float m_axesColor_r, m_axesColor_g, m_axesColor_b, m_axesColor_a;
     float m_signalColor_r, m_signalColor_g, m_signalColor_b;

@@ -4,6 +4,7 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <memory>
@@ -11,6 +12,10 @@
 
 #include "control/controlobject.h"
 #include "coreservices.h"
+#include "library/dao/playlistdao.h"
+#include "library/library.h"
+#include "library/trackcollection.h"
+#include "library/trackcollectionmanager.h"
 #include "qml/qmllibraryproxy.h"
 #include "qml/qmltrackproxy.h"
 #include "test/mixxxtest.h"
@@ -157,6 +162,64 @@ TEST_F(QmlLibraryProxyTest, DeckHotcueJumpDirectionMatchesLegacyRules) {
             m_proxy->deckHotcueJumpDirection(&trackProxy, group, 0));
     EXPECT_EQ(mixxx::qml::QmlLibraryProxy::JumpDirection::Impossible,
             m_proxy->deckHotcueJumpDirection(nullptr, group, 1));
+}
+
+TEST_F(QmlLibraryProxyTest, FolderImportReusesPlaylistAndTrackMembership) {
+    QTemporaryDir music;
+    ASSERT_TRUE(music.isValid());
+    QDir root(music.path());
+    ASSERT_TRUE(root.mkpath(QStringLiteral("profile")));
+    ASSERT_TRUE(root.mkpath(QStringLiteral("Music/Crate Swipe 1/Nested")));
+    const QString folder = root.filePath(QStringLiteral("Music/Crate Swipe 1"));
+    CmdlineArgs::Instance().setSettingsPath(root.filePath(QStringLiteral("profile")));
+    const QVariantList folders = m_proxy->copiedMusicFolders();
+    ASSERT_EQ(folders.size(), 1);
+    EXPECT_EQ(folders.first().toMap().value(QStringLiteral("name")).toString(),
+            QStringLiteral("Crate Swipe 1"));
+    EXPECT_EQ(folders.first().toMap().value(QStringLiteral("directory")).toUrl(),
+            QUrl::fromLocalFile(folder));
+    ASSERT_TRUE(QFile::copy(getTestDir().filePath(QStringLiteral("id3-test-data/artist.mp3")),
+            QDir(folder).filePath(QStringLiteral("first.mp3"))));
+    ASSERT_TRUE(QFile::copy(getTestDir().filePath(QStringLiteral("id3-test-data/all.mp3")),
+            QDir(folder).filePath(QStringLiteral("Nested/second.mp3"))));
+
+    QSignalSpy importFinished(
+            m_proxy.get(), &mixxx::qml::QmlLibraryProxy::folderPlaylistImportFinished);
+    QSignalSpy analysisProgress(
+            m_proxy.get(), &mixxx::qml::QmlLibraryProxy::analysisProgressChanged);
+    ASSERT_TRUE(importFinished.isValid());
+    ASSERT_TRUE(analysisProgress.isValid());
+    m_proxy->importFolderPlaylist(
+            QUrl::fromLocalFile(folder), QStringLiteral("Crate Swipe 1"));
+    ASSERT_TRUE(importFinished.wait(20000));
+    ASSERT_EQ(importFinished.size(), 1);
+    EXPECT_EQ(importFinished.at(0).at(1).toInt(), 2);
+    EXPECT_EQ(importFinished.at(0).at(2).toInt(), 2);
+    EXPECT_EQ(importFinished.at(0).at(3).toInt(), 2);
+    EXPECT_TRUE(importFinished.at(0).at(4).toString().isEmpty());
+    EXPECT_GT(analysisProgress.size(), 0);
+    EXPECT_GE(m_proxy->property("analysisTotalTracks").toInt(), 2);
+    EXPECT_LE(m_proxy->property("analysisCompletedTracks").toInt(),
+            m_proxy->property("analysisTotalTracks").toInt());
+
+    auto& playlistDao = mixxx::qml::QmlLibraryProxy::get()
+                                ->trackCollectionManager()
+                                ->internalCollection()
+                                ->getPlaylistDAO();
+    const int playlistId = playlistDao.getPlaylistIdFromName(QStringLiteral("Crate Swipe 1"));
+    ASSERT_NE(playlistId, kInvalidPlaylistId);
+    EXPECT_EQ(playlistDao.getTrackIds(playlistId).size(), 2);
+
+    importFinished.clear();
+    m_proxy->importFolderPlaylist(
+            QUrl::fromLocalFile(folder), QStringLiteral("Crate Swipe 1"));
+    ASSERT_TRUE(importFinished.wait(20000));
+    EXPECT_EQ(importFinished.at(0).at(1).toInt(), 2);
+    EXPECT_EQ(importFinished.at(0).at(2).toInt(), 0);
+    EXPECT_EQ(importFinished.at(0).at(3).toInt(), 2);
+    EXPECT_TRUE(importFinished.at(0).at(4).toString().isEmpty());
+    EXPECT_EQ(playlistDao.getTrackIds(playlistId).size(), 2);
+    EXPECT_EQ(playlistDao.getPlaylists(PlaylistDAO::PLHT_NOT_HIDDEN).size(), 1);
 }
 
 } // namespace

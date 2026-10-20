@@ -200,6 +200,7 @@ Item {
                 }
                 Skin.Button {
                     id: showPreferencesButton
+                    Accessible.name: qsTr("Settings")
 
                     activeColor: Theme.white
                     checked: settingsPopup.opened

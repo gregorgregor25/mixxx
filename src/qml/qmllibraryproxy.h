@@ -3,8 +3,10 @@
 
 #include <QObject>
 #include <QQmlEngine>
+#include <QSet>
 #include <QString>
 #include <Qt>
+#include <QVariantList>
 #include <memory>
 
 #include "library/dao/directorydao.h"
@@ -12,10 +14,12 @@
 #include "library/trackcollectionmanager.h"
 #include "qml/qmllibrarysource.h"
 #include "qml/qmllibrarytracklistmodel.h"
+#include "track/trackid.h"
 #include "util/parented_ptr.h"
 
 class Library;
 class KeyboardEventFilter;
+class QDirIterator;
 
 namespace mixxx {
 class LibraryExporter;
@@ -95,6 +99,10 @@ class QmlLibraryProxy : public QObject {
     Q_PROPERTY(QQmlListProperty<mixxx::qml::QmlLibrarySource> sources READ sources CONSTANT)
     Q_PROPERTY(mixxx::qml::QmlLibraryScannerProxy* scanner MEMBER m_pScanner CONSTANT)
     Q_PROPERTY(bool libraryScanActive READ libraryScanActive NOTIFY libraryScanActiveChanged)
+    Q_PROPERTY(bool analysisActive MEMBER m_analysisActive NOTIFY analysisProgressChanged)
+    Q_PROPERTY(int analysisCompletedTracks MEMBER m_analysisCompletedTracks NOTIFY analysisProgressChanged)
+    Q_PROPERTY(int analysisTotalTracks MEMBER m_analysisTotalTracks NOTIFY analysisProgressChanged)
+    Q_PROPERTY(double analysisCurrentTrackProgress MEMBER m_analysisCurrentTrackProgress NOTIFY analysisProgressChanged)
     Q_PROPERTY(bool enginePrimeExportAvailable READ enginePrimeExportAvailable CONSTANT)
     Q_PROPERTY(QString waveformCacheDiskUsage READ waveformCacheDiskUsage NOTIFY
                     waveformCacheDiskUsageChanged)
@@ -188,6 +196,8 @@ class QmlLibraryProxy : public QObject {
     Q_INVOKABLE void analyze(const mixxx::qml::QmlTrackProxy* track) const;
     Q_INVOKABLE void createCrate();
     Q_INVOKABLE void createPlaylist();
+    Q_INVOKABLE QVariantList copiedMusicFolders() const;
+    Q_INVOKABLE void importFolderPlaylist(const QUrl& directory, const QString& playlistName);
     Q_INVOKABLE void exportLibrary();
     Q_INVOKABLE void rescanLibrary();
     Q_INVOKABLE void searchInCurrentView();
@@ -215,14 +225,22 @@ class QmlLibraryProxy : public QObject {
 
   signals:
     void libraryScanActiveChanged();
+    void analysisProgressChanged();
     void waveformCacheDiskUsageChanged();
     void libraryScanSummaryAvailable(
             const QString& title,
             const QString& text,
             const QString& informativeText);
+    void folderPlaylistImportFinished(const QString& playlistName,
+            int supportedFiles,
+            int addedToPlaylist,
+            int queuedForAnalysis,
+            const QString& error);
 
   private:
     void deliverPendingLibraryScanSummary();
+    void processFolderPlaylistImportBatch();
+    void finishFolderPlaylistImport(const QString& error = {});
     static inline std::shared_ptr<Library> s_pLibrary;
 
     QString m_waveformCacheDiskUsage;
@@ -231,6 +249,19 @@ class QmlLibraryProxy : public QObject {
     QmlLibraryTrackListModel* m_pModelProperty;
     QmlLibraryScannerProxy* m_pScanner;
     TrackCollectionManager* m_pTrackCollectionManager;
+    std::unique_ptr<QDirIterator> m_playlistImportIterator;
+    QString m_playlistImportName;
+    int m_playlistImportId = -1;
+    int m_playlistImportSupportedFiles = 0;
+    int m_playlistImportAddedTracks = 0;
+    int m_playlistImportFailedFiles = 0;
+    bool m_analysisActive = false;
+    int m_analysisCompletedTracks = 0;
+    int m_analysisTotalTracks = 0;
+    double m_analysisCurrentTrackProgress = 0;
+    QSet<TrackId> m_playlistImportTrackIds;
+    QSet<TrackId> m_playlistImportAnalysisIds;
+    QList<TrackId> m_playlistImportAnalysisTrackIds;
 
     static qsizetype sources_count(QQmlListProperty<QmlLibrarySource>* property);
     static QmlLibrarySource* sources_at(

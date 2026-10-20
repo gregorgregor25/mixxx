@@ -1,6 +1,8 @@
 #include "effects/effectslot.h"
 
 #include <QDebug>
+#include <algorithm>
+#include <cmath>
 
 #include "control/controlencoder.h"
 #include "control/controlpushbutton.h"
@@ -21,6 +23,98 @@
 
 // The maximum number of effect parameters we're going to support.
 constexpr unsigned int kDefaultMaxParameters = 16;
+
+namespace {
+enum class BeatTimingKind {
+    None,
+    Echo,
+    Glitch,
+    Flanger,
+    Autopan,
+    Phaser,
+    Tremolo,
+};
+
+BeatTimingKind beatTimingKind(const QString& id) {
+    if (id == QLatin1String("org.mixxx.effects.echo")) {
+        return BeatTimingKind::Echo;
+    }
+    if (id == QLatin1String("org.mixxx.effects.glitch")) {
+        return BeatTimingKind::Glitch;
+    }
+    if (id == QLatin1String("org.mixxx.effects.flanger")) {
+        return BeatTimingKind::Flanger;
+    }
+    if (id == QLatin1String("org.mixxx.effects.autopan")) {
+        return BeatTimingKind::Autopan;
+    }
+    if (id == QLatin1String("org.mixxx.effects.phaser")) {
+        return BeatTimingKind::Phaser;
+    }
+    if (id == QLatin1String("org.mixxx.effects.tremolo")) {
+        return BeatTimingKind::Tremolo;
+    }
+    return BeatTimingKind::None;
+}
+
+QString beatParameterId(BeatTimingKind kind) {
+    switch (kind) {
+    case BeatTimingKind::Echo:
+    case BeatTimingKind::Glitch:
+        return QStringLiteral("delay_time");
+    case BeatTimingKind::Flanger:
+        return QStringLiteral("speed");
+    case BeatTimingKind::Autopan:
+        return QStringLiteral("period");
+    case BeatTimingKind::Phaser:
+        return QStringLiteral("lfo_period");
+    case BeatTimingKind::Tremolo:
+        return QStringLiteral("rate");
+    case BeatTimingKind::None:
+        return QString();
+    }
+    return QString();
+}
+
+double effectiveBeatTime(
+        BeatTimingKind kind, double raw, bool quantize, bool triplet) {
+    if (!std::isfinite(raw)) {
+        return 0.0;
+    }
+    switch (kind) {
+    case BeatTimingKind::Echo:
+        raw = quantize ? std::max(roundToFraction(raw, 4), 1.0 / 8)
+                       : std::max(raw, 1.0 / 8);
+        return quantize && triplet ? raw / 3 : raw;
+    case BeatTimingKind::Glitch:
+        raw = quantize ? roundToFraction(raw, 8) : raw;
+        raw = quantize && triplet ? raw / 3 : raw;
+        return std::max(raw, 1.0 / 8);
+    case BeatTimingKind::Flanger:
+        raw = std::max(roundToFraction(raw, 2), 1.0 / 4);
+        return triplet ? raw / 3 : raw;
+    case BeatTimingKind::Autopan:
+        return std::max(roundToFraction(raw, 2), 1.0 / 4);
+    case BeatTimingKind::Phaser:
+        raw = std::max(roundToFraction(raw, 2), 1.0 / 4);
+        return triplet ? raw / 3 : raw;
+    case BeatTimingKind::Tremolo:
+        if (raw <= 0) {
+            return 0.0;
+        }
+        if (quantize) {
+            raw = std::pow(2.0, static_cast<int>(std::log2(raw)));
+            if (triplet) {
+                raw *= 3;
+            }
+        }
+        return 1.0 / raw;
+    case BeatTimingKind::None:
+        return 0.0;
+    }
+    return 0.0;
+}
+}
 
 EffectSlot::EffectSlot(const QString& group,
         EffectsManager* pEffectsManager,
@@ -107,6 +201,33 @@ EffectSlot::EffectSlot(const QString& group,
             this,
             &EffectSlot::slotEffectSelector);
 
+    m_pControlBeatTimeStep = std::make_unique<ControlEncoder>(
+            ConfigKey(m_group, "beat_time_step"), false);
+    connect(m_pControlBeatTimeStep.get(),
+            &ControlObject::valueChanged,
+            this,
+            &EffectSlot::slotBeatTimeStep);
+    m_pControlBeatTime = std::make_unique<ControlObject>(
+            ConfigKey(m_group, "beat_time"));
+    m_pControlBeatTime->setReadOnly();
+    m_pControlBeatTimeSupported = std::make_unique<ControlObject>(
+            ConfigKey(m_group, "beat_time_supported"));
+    m_pControlBeatTimeSupported->setReadOnly();
+    m_pControlFxParameterStep = std::make_unique<ControlEncoder>(
+            ConfigKey(m_group, "fx_parameter_step"), false);
+    connect(m_pControlFxParameterStep.get(),
+            &ControlObject::valueChanged,
+            this,
+            &EffectSlot::slotFxParameterStep);
+    m_pControlFxParameterValue = std::make_unique<ControlObject>(
+            ConfigKey(m_group, "fx_parameter_value"));
+    m_pControlFxParameterValue->setReadOnly();
+    m_pControlFxParameterType = std::make_unique<ControlObject>(
+            ConfigKey(m_group, "fx_parameter_type"));
+    m_pControlFxParameterType->setReadOnly();
+    m_pControlControllerSelected = std::make_unique<ControlObject>(
+            ConfigKey(m_group, "controller_selected"));
+
     m_pControlClear =
             std::make_unique<ControlPushButton>(ConfigKey(m_group, "clear"));
     connect(m_pControlClear.get(),
@@ -143,6 +264,7 @@ EffectSlot::EffectSlot(const QString& group,
     m_pControlMetaParameter->setDefaultValue(0.0);
 
     m_pControlLoaded->forceSet(0.0);
+    updateBeatTime();
 }
 
 EffectSlot::~EffectSlot() {
@@ -235,6 +357,10 @@ void EffectSlot::addEffectParameterSlot(EffectParameterType parameterType) {
         return;
     }
     m_parameterSlots[parameterType].append(pParameterSlot);
+    connect(pParameterSlot.get(),
+            &EffectParameterSlotBase::valueChanged,
+            this,
+            &EffectSlot::updateBeatTime);
 }
 
 unsigned int EffectSlot::numParameters(
@@ -377,6 +503,7 @@ void EffectSlot::loadEffectInner(const EffectManifestPointer pManifest,
 
     emit effectChanged();
     updateEngineState();
+    updateBeatTime();
 }
 
 void EffectSlot::unloadEffect() {
@@ -413,6 +540,7 @@ void EffectSlot::unloadEffect() {
     m_pManifest.clear();
 
     removeFromEngine();
+    updateBeatTime();
 }
 
 void EffectSlot::loadParameters() {
@@ -544,6 +672,153 @@ void EffectSlot::slotEffectSelector(double v) {
     } else if (v < 0) {
         loadEffectWithDefaults(m_pVisibleEffects->previous(m_pManifest));
     }
+}
+
+EffectParameterPointer EffectSlot::parameterById(const QString& id) const {
+    for (const auto& parameters : m_allParameters) {
+        for (const auto& pParameter : parameters) {
+            if (pParameter->manifest()->id() == id) {
+                return pParameter;
+            }
+        }
+    }
+    return nullptr;
+}
+
+EffectParameterPointer EffectSlot::beatTimeParameter() const {
+    const auto kind = beatTimingKind(id());
+    return kind == BeatTimingKind::None ? nullptr
+                                        : parameterById(beatParameterId(kind));
+}
+
+void EffectSlot::resetTimingToManifestDefault() {
+    auto pTiming = beatTimeParameter();
+    if (!pTiming && id() == QLatin1String("org.mixxx.effects.reverb")) {
+        pTiming = parameterById(QStringLiteral("decay"));
+    }
+    if (pTiming && pTiming->getValue() != pTiming->manifest()->getDefault()) {
+        setEffectParameterValue(pTiming, pTiming->manifest()->getDefault());
+    }
+}
+
+void EffectSlot::updateBeatTime() {
+    const auto pTiming = beatTimeParameter();
+    m_pControlBeatTimeSupported->forceSet(pTiming ? 1.0 : 0.0);
+    if (pTiming) {
+        const auto pQuantize = parameterById(QStringLiteral("quantize"));
+        const auto pTriplet = parameterById(QStringLiteral("triplet"));
+        const double beats = effectiveBeatTime(beatTimingKind(id()),
+                pTiming->getValue(),
+                pQuantize && pQuantize->getValue() > 0.5,
+                pTriplet && pTriplet->getValue() > 0.5);
+        m_pControlBeatTime->forceSet(beats);
+        m_pControlFxParameterType->forceSet(1.0);
+        m_pControlFxParameterValue->forceSet(beats);
+    } else {
+        m_pControlBeatTime->forceSet(0.0);
+        EffectParameterPointer pDecay;
+        if (id() == QLatin1String("org.mixxx.effects.reverb")) {
+            pDecay = parameterById(QStringLiteral("decay"));
+        }
+        m_pControlFxParameterType->forceSet(pDecay ? 2.0 : 0.0);
+        m_pControlFxParameterValue->forceSet(pDecay ? pDecay->getValue() * 100.0 : 0.0);
+    }
+}
+
+void EffectSlot::setEffectParameterValue(EffectParameterPointer pParameter, double value) {
+    const auto& loaded = m_loadedParameters.value(EffectParameterType::Knob);
+    const int slotIndex = loaded.indexOf(pParameter);
+    if (slotIndex >= 0 &&
+            slotIndex < m_parameterSlots.value(EffectParameterType::Knob).size()) {
+        ControlObject::set(ConfigKey(m_group,
+                                   EffectKnobParameterSlot::formatItemPrefix(slotIndex)),
+                value);
+    } else {
+        pParameter->setValue(value);
+    }
+    updateBeatTime();
+    emit parameterValueChanged();
+}
+
+void EffectSlot::slotFxParameterStep(double v) {
+    if (v == 0) {
+        return;
+    }
+    if (beatTimeParameter()) {
+        slotBeatTimeStep(v);
+        return;
+    }
+    if (id() != QLatin1String("org.mixxx.effects.reverb")) {
+        return;
+    }
+    const auto pDecay = parameterById(QStringLiteral("decay"));
+    if (!pDecay) {
+        return;
+    }
+    const auto pManifest = pDecay->manifest();
+    constexpr double kStepsPerUnit = 20.0;
+    constexpr double kTolerance = 1e-9;
+    const double currentStep = pDecay->getValue() * kStepsPerUnit;
+    const double nextStep = v > 0
+            ? std::floor(currentStep + kTolerance) + 1.0
+            : std::ceil(currentStep - kTolerance) - 1.0;
+    const double nextValue = nextStep / kStepsPerUnit;
+    if (nextValue < pManifest->getMinimum() - kTolerance ||
+            nextValue > pManifest->getMaximum() + kTolerance) {
+        return;
+    }
+    setEffectParameterValue(pDecay, nextValue);
+}
+
+void EffectSlot::slotBeatTimeStep(double v) {
+    if (v == 0) {
+        return;
+    }
+    const auto pTiming = beatTimeParameter();
+    if (!pTiming) {
+        return;
+    }
+    const auto kind = beatTimingKind(id());
+    const auto pQuantize = parameterById(QStringLiteral("quantize"));
+    const auto pTriplet = parameterById(QStringLiteral("triplet"));
+    const bool quantize = pQuantize && pQuantize->getValue() > 0.5;
+    const bool triplet = pTriplet && pTriplet->getValue() > 0.5;
+    const double current = effectiveBeatTime(
+            kind, pTiming->getValue(), quantize, triplet);
+    const auto pParameterManifest = pTiming->manifest();
+    double chosen = 0.0;
+    double chosenEffective = 0.0;
+    bool found = false;
+    const auto considerCandidate = [&](double candidate) {
+        if (candidate < pParameterManifest->getMinimum() - 1e-9 ||
+                candidate > pParameterManifest->getMaximum() + 1e-9) {
+            return;
+        }
+        const double effective = effectiveBeatTime(
+                kind, candidate, quantize, triplet);
+        if ((v > 0 && effective > current + 1e-9 &&
+                    (!found || effective < chosenEffective)) ||
+                (v < 0 && effective < current - 1e-9 &&
+                        (!found || effective > chosenEffective))) {
+            chosen = candidate;
+            chosenEffective = effective;
+            found = true;
+        }
+    };
+    considerCandidate(pParameterManifest->getMinimum());
+    for (int exponent = -3; exponent <= 5; ++exponent) {
+        const double candidateBeats = std::ldexp(1.0, exponent);
+        const double candidate = kind == BeatTimingKind::Tremolo
+                ? 1.0 / candidateBeats
+                : candidateBeats;
+        considerCandidate(candidate);
+    }
+    considerCandidate(pParameterManifest->getMaximum());
+    if (!found) {
+        return;
+    }
+
+    setEffectParameterValue(pTiming, chosen);
 }
 
 void EffectSlot::slotClear(double v) {

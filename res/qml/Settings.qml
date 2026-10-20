@@ -15,6 +15,13 @@ Popup {
     property alias activeCategoryIndex: categoryList.currentIndex
     readonly property var manager: managerItem
     property alias sections: managerItem.data
+    focus: true
+
+    function returnToDecks() {
+        searchInput.focus = false;
+        Qt.inputMethod.hide();
+        root.close();
+    }
 
     function updateActiveCategory() {
         root.activeCategory?.deactivated();
@@ -35,6 +42,12 @@ Popup {
         anchors.centerIn: parent
         height: parent.height - 40
         width: parent.width - 40
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+                root.returnToDecks();
+                event.accepted = true;
+            }
+        }
 
         RowLayout {
             anchors.fill: parent
@@ -105,6 +118,9 @@ Popup {
                         delegate: Rectangle {
                             required property int index
                             required property var label
+                            Accessible.role: Accessible.Button
+                            Accessible.name: label
+                            Accessible.onPressAction: categoryList.currentIndex = index
 
                             color: ListView.isCurrentItem ? Theme.darkGray3 : Theme.darkGray2
                             height: 38
@@ -198,13 +214,26 @@ Popup {
                 Layout.fillHeight: true
                 Layout.fillWidth: true
 
-                Text {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredHeight: 36
-                    color: Theme.white
-                    font.pixelSize: 16
-                    font.weight: Font.DemiBold
-                    text: "Settings"
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 44
+
+                    Text {
+                        anchors.centerIn: parent
+                        color: Theme.white
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                        text: "Settings"
+                    }
+                    Skin.Button {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 150
+                        height: 40
+                        text: qsTr("Back to decks")
+                        Accessible.name: qsTr("Back to decks")
+                        onClicked: root.returnToDecks()
+                    }
                 }
                 Rectangle {
                     id: tabBar
@@ -272,6 +301,11 @@ Popup {
                         // It would seems there is a bug, where the component's layout appears out of date.
                         // Setting the value to its current one seems to be triggering a component update which help fixing the layout
                         root.activeCategoryIndex = root.activeCategoryIndex;
+                        if (categoryList.currentIndex >= 0
+                                && categoryList.currentIndex < data.length
+                                && root.activeCategory !== data[categoryList.currentIndex]) {
+                            root.updateActiveCategory();
+                        }
                     }
 
                     Settings.SoundHardware {

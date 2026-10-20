@@ -13,6 +13,7 @@
 #ifdef Q_OS_IOS
 #include "soundio/soundmanagerios.h"
 #elif defined(Q_OS_ANDROID)
+#include "soundio/sounddeviceandroidusbflx6.h"
 #include <QtCore/private/qandroidextras_p.h>
 #include <android/api-level.h>
 #include <android/log.h>
@@ -43,6 +44,7 @@ void PortAudioEnumerator::initialize() {
     }
 
     m_jackSampleRate = mixxx::audio::SampleRate();
+    m_apis.clear();
 
 #if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     setJACKName();
@@ -263,6 +265,11 @@ void PortAudioEnumerator::initialize() {
             m_apis.push_back(api->name);
         }
     }
+#ifdef Q_OS_ANDROID
+    m_directDevice = QSharedPointer<SoundDeviceAndroidUsbFlx6>::create(
+            m_pConfig, m_pSoundManager);
+    m_apis.push_back(SoundDeviceAndroidUsbFlx6::kHostApi);
+#endif
 }
 
 std::vector<SoundDevicePointer> PortAudioEnumerator::queryDevices() const {
@@ -274,6 +281,11 @@ std::vector<SoundDevicePointer> PortAudioEnumerator::queryDevices() const {
     for (const auto& device : m_devices) {
         devices.push_back(device);
     }
+#ifdef Q_OS_ANDROID
+    if (m_directDevice) {
+        devices.push_back(m_directDevice);
+    }
+#endif
 
     return devices;
 }
@@ -309,6 +321,9 @@ void PortAudioEnumerator::deinitialize() {
     }
 
     m_devices.clear();
+#ifdef Q_OS_ANDROID
+    m_directDevice.clear();
+#endif
 
     PaError err = Pa_Terminate();
     if (err == paNoError) {

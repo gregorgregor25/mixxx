@@ -163,6 +163,10 @@ class Library: public QObject {
     void selectTrack(const TrackId&);
     void trackSelected(TrackPointer pTrack);
     void analyzeTracks(const QList<AnalyzerScheduledTrack>& tracks);
+    void batchAnalysisStateChanged(bool active,
+            int completedTracks,
+            int totalTracks,
+            double currentTrackProgress);
 #ifdef __ENGINEPRIME__
     void exportLibrary();
     void exportCrate(CrateId crateId);

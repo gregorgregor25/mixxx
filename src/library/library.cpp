@@ -164,6 +164,10 @@ Library::Library(
             &Library::analyzeTracks,
             m_pAnalysisFeature,
             &AnalysisFeature::analyzeTracks);
+    connect(m_pAnalysisFeature,
+            &AnalysisFeature::batchAnalysisStateChanged,
+            this,
+            &Library::batchAnalysisStateChanged);
     addFeature(m_pAnalysisFeature);
     // Suspend a batch analysis while an ad-hoc analysis of
     // loaded tracks is in progress and resume it afterwards.

@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QDialog>
 #include <QEvent>
+#include <QMessageBox>
 #include <QMoveEvent>
 #include <QPalette>
 #include <QResizeEvent>
@@ -13,6 +14,7 @@
 #include <QtGlobal>
 
 #include "controllers/dlgprefcontrollers.h"
+#include "effects/effectsmanager.h"
 #include "library/library.h"
 #include "library/trackcollectionmanager.h"
 #include "moc_dlgpreferences.cpp"
@@ -65,6 +67,7 @@ DlgPreferences::DlgPreferences(
         bool includeWaveformPreferences)
         : m_allPages(),
           m_pConfig(pSettingsManager->settings()),
+          m_pEffectsManager(pEffectsManager),
           m_pageSizeHint(QSize(0, 0)) {
     setupUi(this);
     fixSliderStyle();
@@ -198,50 +201,58 @@ DlgPreferences::DlgPreferences(
                           new DlgPrefMixer(this, pEffectsManager, m_pConfig),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Mixer"),
-            "ic_preferences_crossfader.svg");
+            "ic_preferences_crossfader.svg",
+            QStringLiteral("mixer"));
 
     addPageWidget(PreferencesPage(
                           new DlgPrefEffects(this, m_pConfig, pEffectsManager),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Effects"),
-            "ic_preferences_effects.svg");
+            "ic_preferences_effects.svg",
+            QStringLiteral("effects"));
 
     addPageWidget(PreferencesPage(
                           new DlgPrefAutoDJ(this, m_pConfig),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Auto DJ"),
-            "ic_preferences_autodj.svg");
+            "ic_preferences_autodj.svg",
+            QStringLiteral("autodj"));
 
 #ifdef __BROADCAST__
     addPageWidget(PreferencesPage(
                           new DlgPrefBroadcast(this, pSettingsManager->broadcastSettings()),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Live Broadcasting"),
-            "ic_preferences_broadcast.svg");
+            "ic_preferences_broadcast.svg",
+            QStringLiteral("broadcast"));
 #endif // __BROADCAST__
 
     addPageWidget(PreferencesPage(
                           new DlgPrefRecord(this, m_pConfig),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Recording"),
-            "ic_preferences_recording.svg");
+            "ic_preferences_recording.svg",
+            QStringLiteral("recording"));
 
     addPageWidget(PreferencesPage(
                           new DlgPrefBeats(this, m_pConfig),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Beat Detection"),
-            "ic_preferences_bpmdetect.svg");
+            "ic_preferences_bpmdetect.svg",
+            QStringLiteral("beats"));
 
     addPageWidget(PreferencesPage(
                           new DlgPrefKey(this, m_pConfig),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Key Detection"),
-            "ic_preferences_keydetect.svg");
+            "ic_preferences_keydetect.svg",
+            QStringLiteral("key"));
     addPageWidget(PreferencesPage(
                           new DlgPrefReplayGain(this, m_pConfig),
                           new QTreeWidgetItem(contentsTreeWidget, QTreeWidgetItem::Type)),
             tr("Normalization"),
-            "ic_preferences_replaygain.svg");
+            "ic_preferences_replaygain.svg",
+            QStringLiteral("replaygain"));
 
 #ifdef __MODPLUG__
     addPageWidget(PreferencesPage(
@@ -328,6 +339,46 @@ void DlgPreferences::showSoundHardwareInputPage() {
     showSoundHardwarePage(mixxx::preferences::SoundHardwareTab::Input);
 }
 
+bool DlgPreferences::hasPage(const QString& pageId) const {
+    return m_namedPages.contains(pageId);
+}
+
+bool DlgPreferences::showPage(const QString& pageId) {
+    DlgPreferencePage* pPage = m_namedPages.value(pageId, nullptr);
+    if (!pPage) {
+        return false;
+    }
+
+    clearPageScope();
+    for (const PreferencesPage& page : std::as_const(m_allPages)) {
+        if (page.pDlg == pPage) {
+            switchToPage(page.pTreeItem->text(0), pPage);
+            contentsTreeWidget->setCurrentItem(page.pTreeItem);
+#ifdef Q_OS_ANDROID
+            for (const PreferencesPage& otherPage : std::as_const(m_allPages)) {
+                m_pageTreeHiddenBeforeScope.insert(
+                        otherPage.pTreeItem, otherPage.pTreeItem->isHidden());
+                otherPage.pTreeItem->setHidden(otherPage.pTreeItem != page.pTreeItem);
+            }
+            m_scopedPage = pPage;
+            m_pageScopedApply = true;
+#endif
+            return true;
+        }
+    }
+    return false;
+}
+
+void DlgPreferences::clearPageScope() {
+    for (auto it = m_pageTreeHiddenBeforeScope.cbegin();
+            it != m_pageTreeHiddenBeforeScope.cend(); ++it) {
+        it.key()->setHidden(it.value());
+    }
+    m_pageTreeHiddenBeforeScope.clear();
+    m_scopedPage = nullptr;
+    m_pageScopedApply = false;
+}
+
 bool DlgPreferences::eventFilter(QObject* o, QEvent* e) {
     // Send a close signal if dialog is closing
     if (e->type() == QEvent::Hide) {
@@ -400,6 +451,7 @@ void DlgPreferences::changeEvent(QEvent* pEvent) {
 void DlgPreferences::onHide() {
     // Notify children that we are about to hide.
     emit closeDlg();
+    clearPageScope();
 }
 
 void DlgPreferences::onShow() {
@@ -488,6 +540,38 @@ void DlgPreferences::onShow() {
 void DlgPreferences::slotButtonPressed(QAbstractButton* pButton) {
     QDialogButtonBox::ButtonRole role = buttonBox->buttonRole(pButton);
     DlgPreferencePage* pCurrentPage = currentPage();
+    if (m_pageScopedApply) {
+        switch (role) {
+        case QDialogButtonBox::ApplyRole:
+        case QDialogButtonBox::AcceptRole:
+            if (!m_scopedPage) {
+                return;
+            }
+            m_scopedPage->slotApply();
+            if (!m_scopedPage->okayToClose()) {
+                return;
+            }
+            if (!m_pConfig->save()) {
+                QMessageBox::warning(this,
+                        tr("Settings"),
+                        tr("Unable to save preferences."));
+                return;
+            }
+            if (m_scopedPage == m_namedPages.value(QStringLiteral("mixer")) ||
+                    m_scopedPage == m_namedPages.value(QStringLiteral("effects"))) {
+                m_pEffectsManager->saveEffectsXml();
+            }
+            if (role == QDialogButtonBox::AcceptRole) {
+                accept();
+            }
+            return;
+        case QDialogButtonBox::RejectRole:
+            reject();
+            return;
+        default:
+            break;
+        }
+    }
     switch (role) {
     case QDialogButtonBox::ResetRole:
         // Only reset to defaults on the current page.
@@ -525,6 +609,13 @@ void DlgPreferences::slotButtonPressed(QAbstractButton* pButton) {
     }
 }
 
+void DlgPreferences::reject() {
+    if (m_pageScopedApply && m_scopedPage) {
+        m_scopedPage->slotCancel();
+    }
+    QDialog::reject();
+}
+
 bool DlgPreferences::pendingConfigValidOnAllPages() {
     for (const PreferencesPage& page : std::as_const(m_allPages)) {
         if (page.pDlg && !page.pDlg->okayToClose()) {
@@ -541,7 +632,8 @@ bool DlgPreferences::pendingConfigValidOnAllPages() {
 
 void DlgPreferences::addPageWidget(const PreferencesPage& page,
         const QString& pageTitle,
-        const QString& iconFile) {
+        const QString& iconFile,
+        const QString& pageId) {
     PreferencesPage pageCopy = page;
     pageCopy.iconFile = iconFile;
     // Configure the tree button linked to the page
@@ -571,6 +663,9 @@ void DlgPreferences::addPageWidget(const PreferencesPage& page,
     sa->setWidget(pageCopy.pDlg);
     pagesWidget->addWidget(sa);
     m_allPages.append(pageCopy);
+    if (!pageId.isEmpty()) {
+        m_namedPages.insert(pageId, pageCopy.pDlg);
+    }
 
     int iframe = 2 * sa->frameWidth();
     m_pageSizeHint = m_pageSizeHint.expandedTo(
@@ -609,7 +704,19 @@ void DlgPreferences::removePageWidget(DlgPreferencePage* pWidget) {
         return;
     }
 
+    m_pageTreeHiddenBeforeScope.remove(m_allPages[index].pTreeItem);
+    if (m_scopedPage == pWidget) {
+        m_scopedPage = nullptr;
+        m_pageScopedApply = false;
+    }
     m_allPages.removeAt(index);
+    for (auto it = m_namedPages.begin(); it != m_namedPages.end();) {
+        if (it.value() == pWidget) {
+            it = m_namedPages.erase(it);
+        } else {
+            ++it;
+        }
+    }
     pagesWidget->removeWidget(pScrollArea);
     delete pScrollArea;
 }

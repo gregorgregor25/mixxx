@@ -254,6 +254,11 @@ void SoundManager::clearDeviceList(bool sleepAfterClosing) {
 }
 
 QList<mixxx::audio::SampleRate> SoundManager::getSampleRates(const QString& api) const {
+#ifdef Q_OS_ANDROID
+    if (api == QStringLiteral("Android FLX6 Direct USB")) {
+        return {mixxx::audio::SampleRate(44100)};
+    }
+#endif
     QList<mixxx::audio::SampleRate> samplerates =
             m_pEnumerator->getSampleRates(api == SoundManagerConfig::kAPIJack);
     if (!samplerates.empty()) {

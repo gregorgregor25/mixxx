@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QMetaType>
+#include <QSaveFile>
 
 #include "effects/chains/equalizereffectchain.h"
 #include "effects/chains/outputeffectchain.h"
@@ -47,11 +48,18 @@ EffectsManager::EffectsManager(
             new EffectChainPresetManager(pConfig, m_pBackendManager));
 
     m_pVisibleEffectsList = VisibleEffectsListPointer(new VisibleEffectsList());
+
+    m_saveTimer.setSingleShot(true);
+    m_saveTimer.setInterval(500);
+    QObject::connect(&m_saveTimer, &QTimer::timeout, &m_saveTimer, [this]() {
+        saveEffectsXml();
+    });
 }
 
 EffectsManager::~EffectsManager() {
     m_pMessenger->initiateShutdown();
 
+    m_saveTimer.stop();
     saveEffectsXml();
 
     // The EffectChains must be deleted before the EffectsBackends in case
@@ -80,6 +88,14 @@ void EffectsManager::setup() {
     // readEffectsXml() is running is also initialized.
     m_initializedFromEffectsXml = true;
     readEffectsXml();
+#ifdef Q_OS_ANDROID
+    for (const auto& pChain : std::as_const(m_standardEffectChains)) {
+        for (const auto& pSlot : pChain->getEffectSlots()) {
+            pSlot->resetTimingToManifestDefault();
+        }
+    }
+#endif
+    m_autoSaveReady = true;
 }
 
 void EffectsManager::registerInputChannel(const ChannelHandleAndGroup& handle_group) {
@@ -115,6 +131,21 @@ void EffectsManager::addStandardEffectChains() {
 
         m_standardEffectChains.append(pChainSlot);
         m_effectChainSlotsByGroup.insert(pChainSlot->group(), pChainSlot);
+        for (const auto& pEffectSlot : pChainSlot->getEffectSlots()) {
+            const auto scheduleSave = [this]() {
+                if (m_autoSaveReady) {
+                    m_saveTimer.start();
+                }
+            };
+            QObject::connect(pEffectSlot.data(),
+                    &EffectSlot::effectChanged,
+                    &m_saveTimer,
+                    scheduleSave);
+            QObject::connect(pEffectSlot.data(),
+                    &EffectSlot::parameterValueChanged,
+                    &m_saveTimer,
+                    scheduleSave);
+        }
     }
 }
 
@@ -405,11 +436,13 @@ void EffectsManager::saveEffectsXml() {
     if (!settingsPath.exists()) {
         return;
     }
-    QFile file(settingsPath.absoluteFilePath(kEffectsXmlFile));
-    if (!file.open(QIODevice::Truncate | QIODevice::WriteOnly)) {
-        qWarning() << "EffectsManager: could not save effects.xml file";
+    QSaveFile file(settingsPath.absoluteFilePath(kEffectsXmlFile));
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "EffectsManager: could not save effects.xml file:" << file.errorString();
         return;
     }
-    file.write(doc.toString().toUtf8());
-    file.close();
+    const QByteArray xml = doc.toByteArray();
+    if (file.write(xml) != xml.size() || !file.commit()) {
+        qWarning() << "EffectsManager: could not save effects.xml file:" << file.errorString();
+    }
 }

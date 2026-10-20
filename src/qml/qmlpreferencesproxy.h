@@ -233,6 +233,7 @@ class QmlControllerDeviceProxy : public QObject {
     Q_PROPERTY(QString product READ product CONSTANT)
     Q_PROPERTY(QString serialNumber READ serialNumber CONSTANT)
     Q_PROPERTY(mixxx::qml::QmlControllerDeviceProxy::Type type READ getType CONSTANT)
+    Q_PROPERTY(bool supportsProductEditing READ supportsProductEditing CONSTANT)
 
     Q_PROPERTY(QString name READ getName WRITE setName NOTIFY nameChanged)
     Q_PROPERTY(QUrl visualUrl READ getVisualUrl WRITE setVisualUrl NOTIFY visualUrlChanged)
@@ -256,6 +257,7 @@ class QmlControllerDeviceProxy : public QObject {
             const QSet<QmlControllerMappingProxy*>& mappings,
             QObject* parent);
     mixxx::qml::QmlControllerDeviceProxy::Type getType() const;
+    bool supportsProductEditing() const;
     QString getName() const;
     void setName(const QString& name);
     QString getSinceVersion() const;
@@ -274,7 +276,7 @@ class QmlControllerDeviceProxy : public QObject {
     }
     void setMappings(const QSet<QmlControllerMappingProxy*>& mappings) {
         m_mappings = mappings;
-        emit mappingChanged();
+        emit mappingsChanged();
     }
     void clearEdited() {
         bool changed = m_edited;

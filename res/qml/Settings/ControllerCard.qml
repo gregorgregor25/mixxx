@@ -13,7 +13,7 @@ import "../Theme"
 Item {
     id: root
 
-    readonly property bool editable: !knownDevice || root.modelData.mapping?.isUserMapping(Mixxx.Config)
+    readonly property bool editable: modelData.supportsProductEditing && (!knownDevice || root.modelData.mapping?.isUserMapping(Mixxx.Config))
     property bool focused
     property bool knownDevice: false
     property alias mappings: mappingsCombobox

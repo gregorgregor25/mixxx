@@ -15,6 +15,7 @@ Item {
 
     required property string group
     property bool splitStemTracks: false
+    property bool originalTrackContent: false
     readonly property int activeWaveformType: Mixxx.Config.waveformType === Mixxx.WaveformDisplay.Type.Simple || Mixxx.Config.waveformType === Mixxx.WaveformDisplay.Type.Filtered || Mixxx.Config.waveformType === Mixxx.WaveformDisplay.Type.HSV || Mixxx.Config.waveformType === Mixxx.WaveformDisplay.Type.RGB || Mixxx.Config.waveformType === Mixxx.WaveformDisplay.Type.Stacked ? Mixxx.Config.waveformType : Mixxx.WaveformDisplay.Type.RGB
     // Renderer factories are created once by QmlWaveformDisplay. Keep track
     // of the type that was used for the scene-graph stack so a change from
@@ -51,7 +52,7 @@ Item {
         backgroundColor: "transparent"
         frameRate: Mixxx.Config.waveformFrameRate
         group: root.group
-        options: Mixxx.Config.waveformOptions
+        options: Mixxx.Config.waveformOptions | (root.originalTrackContent ? Mixxx.WaveformDisplay.Option.OriginalTrack : 0)
         visible: Mixxx.Config.waveformEnabled
         zoom: zoomControl.value
 
@@ -144,9 +145,9 @@ Item {
             gainHigh: Mixxx.Config.waveformVisualGainHigh
             gainLow: Mixxx.Config.waveformVisualGainLow
             gainMid: Mixxx.Config.waveformVisualGainMedium
-            highColor: '#D5C2A2'
-            lowColor: '#2154D7'
-            midColor: '#97632D'
+            highColor: '#0000ff'
+            lowColor: '#ff0000'
+            midColor: '#00ff00'
         }
         Mixxx.WaveformRendererStem {
             gainAll: root.splitStemTracks ? 2.0 : 1.0

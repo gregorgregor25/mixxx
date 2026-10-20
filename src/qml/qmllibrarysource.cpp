@@ -57,5 +57,16 @@ QmlLibraryAllTrackSource::QmlLibraryAllTrackSource(
             &QmlLibraryAbstractSource::slotShowTrackModel);
 }
 
+QmlLibraryPlaylistSource::QmlLibraryPlaylistSource(
+        QObject* parent, const QList<QmlLibraryTrackListColumn*>& columns)
+        : QmlLibraryAbstractSource(parent, columns),
+          m_pLibraryFeature(std::make_unique<PlaylistFeature>(
+                  QmlLibraryProxy::get(), QmlConfigProxy::get())) {
+    connect(m_pLibraryFeature.get(),
+            &LibraryFeature::showTrackModel,
+            this,
+            &QmlLibraryAbstractSource::slotShowTrackModel);
+}
+
 } // namespace qml
 } // namespace mixxx

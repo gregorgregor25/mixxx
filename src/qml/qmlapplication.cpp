@@ -20,6 +20,7 @@
 #include "moc_qmlapplication.cpp"
 #include "preferences/configobject.h"
 #include "qml/asyncimageprovider.h"
+#include "qml/flx6filtercontroller.h"
 #include "qml/qmlapplicationproxy.h"
 #include "qml/qmlconfigproxy.h"
 #include "qml/qmlcoreservices.h"
@@ -239,6 +240,10 @@ QmlApplication::QmlApplication(
     // closed because it does not take into account the window created by
     // the QQmlApplicationEngine.
     pDlgPreferences->setAttribute(Qt::WA_QuitOnClose, false);
+#if defined(Q_OS_ANDROID)
+    m_pFlx6Filter = std::make_unique<Flx6FilterController>(
+            m_pCoreServices->getSettings(), m_pCoreServices->getEffectsManager(), this);
+#endif
 
     auto inputWarningVisible = std::make_shared<bool>(false);
     auto showNoInputConfiguredWarning =
@@ -371,7 +376,9 @@ QmlApplication::QmlApplication(
         __android_log_print(ANDROID_LOG_WARN, "mixxx", "unable to create a ADPF session!");
     }
     else {
+#if __ANDROID_API__ >= 35
         APerformanceHint_setPreferPowerEfficiency(m_perfSession, false);
+#endif
         __android_log_print(ANDROID_LOG_VERBOSE, "mixxx", "ADPF session ready");
     }
 #endif
@@ -425,6 +432,7 @@ QmlApplication::~QmlApplication() {
     WaveformWidgetFactory::setQmlMode(false);
 #endif
     m_visualsManager.reset();
+    m_pFlx6Filter.reset();
     QmlApplicationProxy::registerVinylControlManager(nullptr);
     m_pCoreServices.reset();
 }

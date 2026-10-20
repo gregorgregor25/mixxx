@@ -25,7 +25,9 @@ struct FilterGroupState : public EffectState {
 
 class FilterEffect : public EffectProcessorImpl<FilterGroupState> {
   public:
-    FilterEffect() = default;
+    explicit FilterEffect(bool extendedResonance = false)
+            : m_extendedResonance(extendedResonance) {
+    }
     ~FilterEffect() override = default;
 
     static QString getId();
@@ -50,6 +52,17 @@ class FilterEffect : public EffectProcessorImpl<FilterGroupState> {
     EngineEffectParameterPointer m_pLPF;
     EngineEffectParameterPointer m_pQ;
     EngineEffectParameterPointer m_pHPF;
+    bool m_extendedResonance;
 
     DISALLOW_COPY_AND_ASSIGN(FilterEffect);
+};
+
+class Flx6ResonantFilterEffect final : public FilterEffect {
+  public:
+    Flx6ResonantFilterEffect()
+            : FilterEffect(true) {
+    }
+
+    static QString getId();
+    static EffectManifestPointer getManifest();
 };

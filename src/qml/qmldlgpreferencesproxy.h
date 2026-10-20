@@ -3,6 +3,7 @@
 #include <QDialog>
 #include <QObject>
 #include <QQmlEngine>
+#include <QString>
 #include <memory>
 
 namespace mixxx {
@@ -18,6 +19,8 @@ class QmlDlgPreferencesProxy : public QObject {
             QObject* parent = nullptr);
 
     Q_INVOKABLE void show();
+    Q_INVOKABLE bool showPage(const QString& pageId);
+    Q_INVOKABLE bool hasPage(const QString& pageId) const;
 
     static QmlDlgPreferencesProxy* create(QQmlEngine* pQmlEngine, QJSEngine* pJsEngine);
     static inline std::unique_ptr<QmlDlgPreferencesProxy> s_pInstance;

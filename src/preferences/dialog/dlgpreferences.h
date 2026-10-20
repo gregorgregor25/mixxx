@@ -3,6 +3,7 @@
 #include <QDialog>
 #include <QDir>
 #include <QEvent>
+#include <QHash>
 #include <QRect>
 #include <QStringList>
 #include <memory>
@@ -59,7 +60,11 @@ class DlgPreferences : public QDialog, public Ui::DlgPreferencesDlg {
 
     void addPageWidget(const PreferencesPage& page,
             const QString& pageTitle,
-            const QString& iconFile);
+            const QString& iconFile,
+            const QString& pageId = QString());
+    Q_INVOKABLE bool hasPage(const QString& pageId) const;
+    Q_INVOKABLE bool showPage(const QString& pageId);
+    Q_INVOKABLE void clearPageScope();
     void removePageWidget(DlgPreferencePage* pWidget);
     void expandTreeItem(QTreeWidgetItem* pItem);
     void switchToPage(const QString& pageTitle, DlgPreferencePage* pPage);
@@ -71,6 +76,7 @@ class DlgPreferences : public QDialog, public Ui::DlgPreferencesDlg {
                     std::nullopt);
     void showSoundHardwareInputPage();
     void slotButtonPressed(QAbstractButton* pButton);
+    void reject() override;
   signals:
     void closeDlg();
     void showDlg();
@@ -96,6 +102,10 @@ class DlgPreferences : public QDialog, public Ui::DlgPreferencesDlg {
     DlgPreferencePage* currentPage();
     void fixSliderStyle();
     QList<PreferencesPage> m_allPages;
+    QHash<QString, DlgPreferencePage*> m_namedPages;
+    QHash<QTreeWidgetItem*, bool> m_pageTreeHiddenBeforeScope;
+    DlgPreferencePage* m_scopedPage = nullptr;
+    bool m_pageScopedApply = false;
     void onShow();
     void onHide();
     QRect getDefaultGeometry();
@@ -105,6 +115,7 @@ class DlgPreferences : public QDialog, public Ui::DlgPreferencesDlg {
 
     QStringList m_geometry;
     UserSettingsPointer m_pConfig;
+    std::shared_ptr<EffectsManager> m_pEffectsManager;
     std::unique_ptr<DlgPrefSound> m_pSoundDlg;
     PreferencesPage m_soundPage;
     DlgPrefControllers* m_pControllersDlg;

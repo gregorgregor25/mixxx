@@ -47,6 +47,7 @@ BuiltInBackend::BuiltInBackend() {
     registerEffect<LoudnessContourEffect>();
     // Fading Effects
     registerEffect<FilterEffect>();
+    registerEffect<Flx6ResonantFilterEffect>();
     registerEffect<MoogLadder4FilterEffect>();
     registerEffect<BitCrusherEffect>();
     registerEffect<WhiteNoiseEffect>();

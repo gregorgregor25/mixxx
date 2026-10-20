@@ -22,6 +22,8 @@ class APerformanceHintSession;
 namespace mixxx {
 namespace qml {
 
+class Flx6FilterController;
+
 class QmlApplication : public QObject {
     Q_OBJECT
   public:
@@ -48,6 +50,7 @@ class QmlApplication : public QObject {
     void updateSpinnyCoverControls();
 
     std::shared_ptr<CoreServices> m_pCoreServices;
+    std::unique_ptr<Flx6FilterController> m_pFlx6Filter;
     std::unique_ptr<::VisualsManager> m_visualsManager;
     std::unique_ptr<GuiTick> m_pGuiTick;
     QTimer m_guiTickTimer;

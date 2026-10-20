@@ -20,12 +20,16 @@ const mixxx::Logger kLogger("AnalysisFeature");
 
 const QString kViewName = QStringLiteral("Analysis");
 
-// Utilize all available cores for batch analysis of tracks
+#ifndef Q_OS_ANDROID
 const int kNumberOfAnalyzerThreads = math_max(1, QThread::idealThreadCount());
+#endif
 
-inline
-int numberOfAnalyzerThreads() {
+inline int numberOfAnalyzerThreads() {
+#ifdef Q_OS_ANDROID
+    return 1;
+#else
     return kNumberOfAnalyzerThreads;
+#endif
 }
 
 inline
@@ -141,7 +145,13 @@ void AnalysisFeature::activate() {
 }
 
 void AnalysisFeature::analyzeTracks(const QList<AnalyzerScheduledTrack>& tracks) {
+    if (tracks.isEmpty()) {
+        return;
+    }
     if (!m_pTrackAnalysisScheduler) {
+        m_batchCompletedTracks = 0;
+        m_batchTotalTracks = 0;
+        m_batchCurrentTrackProgress = 0;
         const int numAnalyzerThreads = numberOfAnalyzerThreads();
         kLogger.info()
                 << "Starting analysis using"
@@ -151,14 +161,16 @@ void AnalysisFeature::analyzeTracks(const QList<AnalyzerScheduledTrack>& tracks)
                 numAnalyzerThreads,
                 getAnalyzerModeFlags(m_pConfig));
 
-        connect(m_pTrackAnalysisScheduler.get(),
-                &TrackAnalysisScheduler::progress,
-                m_pAnalysisView,
-                &DlgAnalysis::onTrackAnalysisSchedulerProgress);
-        connect(m_pTrackAnalysisScheduler.get(),
-                &TrackAnalysisScheduler::finished,
-                m_pAnalysisView,
-                &DlgAnalysis::onTrackAnalysisSchedulerFinished);
+        if (m_pAnalysisView) {
+            connect(m_pTrackAnalysisScheduler.get(),
+                    &TrackAnalysisScheduler::progress,
+                    m_pAnalysisView,
+                    &DlgAnalysis::onTrackAnalysisSchedulerProgress);
+            connect(m_pTrackAnalysisScheduler.get(),
+                    &TrackAnalysisScheduler::finished,
+                    m_pAnalysisView,
+                    &DlgAnalysis::onTrackAnalysisSchedulerFinished);
+        }
         connect(m_pTrackAnalysisScheduler.get(),
                 &TrackAnalysisScheduler::progress,
                 this,
@@ -175,13 +187,35 @@ void AnalysisFeature::analyzeTracks(const QList<AnalyzerScheduledTrack>& tracks)
                 &TrackAnalysisScheduler::trackProgress,
                 this,
                 &AnalysisFeature::trackProgress);
+        connect(m_pTrackAnalysisScheduler.get(),
+                &TrackAnalysisScheduler::trackProgress,
+                this,
+                &AnalysisFeature::onBatchTrackProgress);
 
         emit analysisActive(true);
     }
 
-    if (m_pTrackAnalysisScheduler->scheduleTracks(tracks) > 0) {
+    const int scheduledTracks = m_pTrackAnalysisScheduler->scheduleTracks(tracks);
+    m_batchTotalTracks += scheduledTracks;
+    emit batchAnalysisStateChanged(true,
+            m_batchCompletedTracks,
+            m_batchTotalTracks,
+            m_batchCurrentTrackProgress);
+    if (scheduledTracks > 0) {
         resumeAnalysis();
     }
+}
+
+void AnalysisFeature::onBatchTrackProgress(
+        TrackId /*trackId*/, AnalyzerProgress progress) {
+    if (!m_pTrackAnalysisScheduler || progress != kAnalyzerProgressDone) {
+        return;
+    }
+    ++m_batchCompletedTracks;
+    emit batchAnalysisStateChanged(true,
+            m_batchCompletedTracks,
+            m_batchTotalTracks,
+            m_batchCurrentTrackProgress);
 }
 
 void AnalysisFeature::suspendAnalysis() {
@@ -209,7 +243,7 @@ void AnalysisFeature::stopAnalysis() {
 }
 
 void AnalysisFeature::onTrackAnalysisSchedulerProgress(
-        AnalyzerProgress /*currentTrackProgress*/,
+        AnalyzerProgress currentTrackProgress,
         int currentTrackNumber,
         int totalTracksCount) {
     // Ignore any delayed progress updates after the analysis
@@ -222,6 +256,14 @@ void AnalysisFeature::onTrackAnalysisSchedulerProgress(
     } else {
         resetTitle();
     }
+    m_batchCurrentTrackProgress =
+            currentTrackProgress >= kAnalyzerProgressNone
+            ? currentTrackProgress
+            : kAnalyzerProgressNone;
+    emit batchAnalysisStateChanged(true,
+            m_batchCompletedTracks,
+            m_batchTotalTracks,
+            m_batchCurrentTrackProgress);
 }
 
 void AnalysisFeature::onTrackAnalysisSchedulerFinished() {
@@ -239,6 +281,11 @@ void AnalysisFeature::onTrackAnalysisSchedulerFinished() {
     }
     resetTitle();
     emit analysisActive(false);
+    m_batchCurrentTrackProgress = 0;
+    emit batchAnalysisStateChanged(false,
+            m_batchCompletedTracks,
+            m_batchTotalTracks,
+            m_batchCurrentTrackProgress);
 }
 
 bool AnalysisFeature::dropAccept(const QList<QUrl>& urls, QObject* pSource) {

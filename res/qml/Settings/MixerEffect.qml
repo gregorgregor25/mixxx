@@ -1,16 +1,48 @@
 import QtQuick
-import Mixxx 1.0 as Mixxx
+import QtQuick.Controls
+import QtQuick.Layouts
+import "../Theme"
 
 Category {
-    label: "Mixer & Effects"
+    label: qsTr("Mixer & Effects")
 
-    Mixxx.SettingParameter {
-        label: "A green square"
+    ScrollView {
+        id: settingsScroll
 
-        Rectangle {
-            color: 'green'
-            height: 20
-            width: 20
+        anchors.fill: parent
+        anchors.margins: 24
+        clip: true
+
+        ColumnLayout {
+            spacing: 18
+            width: settingsScroll.availableWidth
+
+            Text {
+                Layout.fillWidth: true
+                color: Theme.white
+                font.bold: true
+                font.pixelSize: 22
+                text: qsTr("Mixer & Effects")
+            }
+            Flx6FilterSettings {
+                Layout.fillWidth: true
+            }
+            NativeSettingsEntry {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 94
+                buttonText: qsTr("Open mixer settings")
+                description: qsTr("Mixer and crossfader behavior")
+                pageId: "mixer"
+                title: qsTr("Mixer")
+            }
+            NativeSettingsEntry {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 94
+                buttonText: qsTr("Open effects settings")
+                description: qsTr("Effects and filter behavior")
+                pageId: "effects"
+                title: qsTr("Effects")
+            }
         }
     }
 }

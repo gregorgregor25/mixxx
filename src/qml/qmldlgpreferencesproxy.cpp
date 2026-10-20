@@ -1,5 +1,7 @@
 #include "qmldlgpreferencesproxy.h"
 
+#include <QMetaObject>
+
 #include "moc_qmldlgpreferencesproxy.cpp"
 #include "util/assert.h"
 
@@ -14,7 +16,35 @@ QmlDlgPreferencesProxy::QmlDlgPreferencesProxy(
 }
 
 void QmlDlgPreferencesProxy::show() {
+    QMetaObject::invokeMethod(
+            m_pDlgPreferences.get(), "clearPageScope", Qt::DirectConnection);
     m_pDlgPreferences->show();
+}
+
+bool QmlDlgPreferencesProxy::showPage(const QString& pageId) {
+    bool found = false;
+    if (!QMetaObject::invokeMethod(m_pDlgPreferences.get(),
+                "showPage",
+                Qt::DirectConnection,
+                Q_RETURN_ARG(bool, found),
+                Q_ARG(QString, pageId)) ||
+            !found) {
+        return false;
+    }
+    m_pDlgPreferences->show();
+    m_pDlgPreferences->raise();
+    m_pDlgPreferences->activateWindow();
+    return true;
+}
+
+bool QmlDlgPreferencesProxy::hasPage(const QString& pageId) const {
+    bool found = false;
+    return QMetaObject::invokeMethod(m_pDlgPreferences.get(),
+                   "hasPage",
+                   Qt::DirectConnection,
+                   Q_RETURN_ARG(bool, found),
+                   Q_ARG(QString, pageId)) &&
+            found;
 }
 
 // static

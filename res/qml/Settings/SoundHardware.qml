@@ -9,6 +9,7 @@ Category {
     id: root
 
     property bool committing: false
+    property bool flx6AlignmentVisible: false
     property bool hasChanges: router.hasChanges
 
     function load() {
@@ -23,6 +24,9 @@ Category {
         microphoneMonitorMode.currentIndex = micMonitorMode.value;
         soundApi.options = manager.getHostAPIList();
         soundApi.selected = manager.getAPI();
+        flx6AlignmentVisible = Qt.platform.os == "android"
+                && manager.getAPI() == "Android FLX6 Direct USB"
+                && flx6Available.value > 0;
         keylock.update();
         keylock.selected = keylock.options[manager.getKeylockEngine()];
 
@@ -194,6 +198,36 @@ Category {
 
         group: "[Master]"
         key: "mono_mixdown"
+    }
+    Mixxx.ControlProxy {
+        id: flx6Available
+
+        group: "[Flx6OutputDelay]"
+        key: "available"
+    }
+    Mixxx.ControlProxy {
+        id: flx6Left
+
+        group: "[Flx6OutputDelay]"
+        key: "left_ms"
+    }
+    Mixxx.ControlProxy {
+        id: flx6Right
+
+        group: "[Flx6OutputDelay]"
+        key: "right_ms"
+    }
+    Mixxx.ControlProxy {
+        id: flx6Headphones
+
+        group: "[Flx6OutputDelay]"
+        key: "headphones_ms"
+    }
+    Mixxx.ControlProxy {
+        id: flx6Bypass
+
+        group: "[Flx6OutputDelay]"
+        key: "bypass"
     }
     Mixxx.ControlProxy {
         id: micMonitorMode
@@ -492,93 +526,169 @@ Category {
                         root.selectedIndex = 1;
                     }
 
-                    GridLayout {
+                    ColumnLayout {
                         id: delays
 
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        columns: 2
-                        rowSpacing: 0
+                        spacing: 14
 
-                        Text {
-                            id: mainDelayLabel
-
+                        GridLayout {
                             Layout.fillWidth: true
-                            color: Theme.white
-                            font.pixelSize: 14
-                            opacity: enabled ? 1 : 0.5
-                            text: "Main Output"
+                            columns: 2
+                            rowSpacing: 0
 
-                            Mixxx.SettingParameter {
-                                label: "Main Output"
+                            Text {
+                                id: mainDelayLabel
+
+                                Layout.fillWidth: true
+                                color: Theme.white
+                                font.pixelSize: 14
+                                opacity: enabled ? 1 : 0.5
+                                text: "Main Output"
+
+                                Mixxx.SettingParameter {
+                                    label: "Main Output"
+                                }
+                            }
+                            Skin.Slider {
+                                id: mainDelaySlider
+
+                                Layout.fillWidth: true
+                                markers: ["0ms", "100ms", "1s", "10s", null]
+                                slider.to: 1000
+                                suffix: "ms"
+
+                                onValueChanged: {
+                                    root.hasChanges = true;
+                                }
+                            }
+                            Text {
+                                id: boothDelayLabel
+
+                                Layout.fillWidth: true
+                                color: Theme.white
+                                enabled: boothEnabled.value
+                                font.pixelSize: 14
+                                opacity: enabled ? 1 : 0.5
+                                text: "Booth Output"
+
+                                Mixxx.SettingParameter {
+                                    label: "Booth Output"
+                                }
+                            }
+                            Skin.Slider {
+                                id: boothDelaySlider
+
+                                Layout.fillWidth: true
+                                enabled: boothEnabled.value
+                                markers: ["0ms", "100ms", "1s", "10s", null]
+                                slider.to: 1000
+                                suffix: "ms"
+                                value: boothDelay.value
+
+                                onValueChanged: {
+                                    root.hasChanges = true;
+                                }
+                            }
+                            Text {
+                                id: headphoneDelayLabel
+
+                                Layout.fillWidth: true
+                                color: Theme.white
+                                enabled: headEnabled.value
+                                font.pixelSize: 14
+                                opacity: enabled ? 1 : 0.5
+                                text: "Headphone Output"
+
+                                Mixxx.SettingParameter {
+                                    label: "Headphone Output"
+                                }
+                            }
+                            Skin.Slider {
+                                id: headphoneDelaySlider
+
+                                Layout.fillWidth: true
+                                enabled: headEnabled.value
+                                markers: ["0ms", "100ms", "1s", "10s", null]
+                                slider.to: 1000
+                                suffix: "ms"
+                                value: headDelay.value
+
+                                onValueChanged: {
+                                    root.hasChanges = true;
+                                }
                             }
                         }
-                        Skin.Slider {
-                            id: mainDelaySlider
 
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            markers: ["0ms", "100ms", "1s", "10s", null]
-                            slider.to: 1000
-                            suffix: "ms"
+                            spacing: 8
+                            visible: root.flx6AlignmentVisible
 
-                            onValueChanged: {
-                                root.hasChanges = true;
+                            Text {
+                                Layout.fillWidth: true
+                                color: Theme.white
+                                font.bold: true
+                                font.pixelSize: 16
+                                text: qsTr("FLX6 output alignment")
                             }
-                        }
-                        Text {
-                            id: boothDelayLabel
-
-                            Layout.fillWidth: true
-                            color: Theme.white
-                            enabled: boothEnabled.value
-                            font.pixelSize: 14
-                            opacity: enabled ? 1 : 0.5
-                            text: "Booth Output"
-
-                            Mixxx.SettingParameter {
-                                label: "Booth Output"
+                            Text {
+                                Layout.fillWidth: true
+                                color: Theme.white
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                                text: qsTr("Delay whichever output you hear first until it matches the slowest. These values add to the delays above. Changes apply while music plays and save automatically.")
                             }
-                        }
-                        Skin.Slider {
-                            id: boothDelaySlider
-
-                            Layout.fillWidth: true
-                            enabled: boothEnabled.value
-                            markers: ["0ms", "100ms", "1s", "10s", null]
-                            slider.to: 1000
-                            suffix: "ms"
-                            value: boothDelay.value
-
-                            onValueChanged: {
-                                root.hasChanges = true;
+                            Flx6DelayRow {
+                                Layout.fillWidth: true
+                                delayControl: flx6Left
+                                label: qsTr("Left speaker")
                             }
-                        }
-                        Text {
-                            id: headphoneDelayLabel
-
-                            Layout.fillWidth: true
-                            color: Theme.white
-                            enabled: headEnabled.value
-                            font.pixelSize: 14
-                            opacity: enabled ? 1 : 0.5
-                            text: "Headphone Output"
-
-                            Mixxx.SettingParameter {
-                                label: "Headphone Output"
+                            Flx6DelayRow {
+                                Layout.fillWidth: true
+                                delayControl: flx6Right
+                                label: qsTr("Right speaker")
                             }
-                        }
-                        Skin.Slider {
-                            id: headphoneDelaySlider
+                            Flx6DelayRow {
+                                Layout.fillWidth: true
+                                delayControl: flx6Headphones
+                                label: qsTr("Headphones / cue")
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 12
 
-                            Layout.fillWidth: true
-                            enabled: headEnabled.value
-                            markers: ["0ms", "100ms", "1s", "10s", null]
-                            slider.to: 1000
-                            suffix: "ms"
-                            value: headDelay.value
+                                Skin.FormButton {
+                                    id: flx6BypassButton
 
-                            onValueChanged: {
-                                root.hasChanges = true;
+                                    Layout.preferredHeight: 44
+                                    Layout.preferredWidth: 110
+                                    checkable: true
+                                    checked: flx6Bypass.value >= 0.5
+                                    text: qsTr("Bypass")
+
+                                    onClicked: flx6Bypass.value = checked ? 1 : 0
+                                }
+                                Connections {
+                                    target: flx6Bypass
+
+                                    function onValueChanged() {
+                                        flx6BypassButton.checked = flx6Bypass.value >= 0.5;
+                                    }
+                                }
+                                Skin.FormButton {
+                                    Layout.preferredHeight: 44
+                                    Layout.preferredWidth: 110
+                                    text: qsTr("Reset all")
+
+                                    onClicked: {
+                                        flx6Left.value = 0;
+                                        flx6Right.value = 0;
+                                        flx6Headphones.value = 0;
+                                        flx6Bypass.value = 0;
+                                    }
+                                }
                             }
                         }
                     }
@@ -683,5 +793,65 @@ Category {
         }
 
         target: Mixxx.SoundManager
+    }
+
+    component Flx6DelayRow: RowLayout {
+        id: delayRow
+
+        required property var delayControl
+        required property string label
+
+        spacing: 6
+
+        Text {
+            Layout.preferredWidth: 140
+            color: Theme.white
+            font.pixelSize: 14
+            text: delayRow.label
+        }
+        Skin.FormButton {
+            Layout.preferredHeight: 44
+            Layout.preferredWidth: 44
+            text: "−"
+
+            onClicked: delayRow.delayControl.value = Math.max(0,
+                    Math.round(delayRow.delayControl.value) - 1)
+        }
+        Slider {
+            id: alignmentSlider
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: 44
+            from: 0
+            snapMode: Slider.SnapAlways
+            stepSize: 1
+            to: 1000
+
+            Component.onCompleted: value = delayRow.delayControl.value
+
+            onMoved: delayRow.delayControl.value = Math.round(value)
+        }
+        Skin.FormButton {
+            Layout.preferredHeight: 44
+            Layout.preferredWidth: 44
+            text: "+"
+
+            onClicked: delayRow.delayControl.value = Math.min(1000,
+                    Math.round(delayRow.delayControl.value) + 1)
+        }
+        Text {
+            Layout.preferredWidth: 60
+            color: Theme.white
+            font.pixelSize: 14
+            horizontalAlignment: Text.AlignRight
+            text: qsTr("%1 ms").arg(Math.round(delayRow.delayControl.value))
+        }
+        Connections {
+            target: delayRow.delayControl
+
+            function onValueChanged() {
+                alignmentSlider.value = delayRow.delayControl.value;
+            }
+        }
     }
 }

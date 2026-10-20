@@ -12,7 +12,7 @@ const QString kEffectGroupFormat = QStringLiteral("[EqualizerRack1_%1_Effect1]")
 } // namespace
 
 WaveformRendererSignalBase::WaveformRendererSignalBase(
-        WaveformWidgetRenderer* waveformWidgetRenderer, Options)
+        WaveformWidgetRenderer* waveformWidgetRenderer, Options options)
         : WaveformRendererAbstract(waveformWidgetRenderer),
           m_alignment(Qt::AlignCenter),
           m_orientation(Qt::Horizontal),
@@ -20,6 +20,7 @@ WaveformRendererSignalBase::WaveformRendererSignalBase(
           m_lowVisualGain(1),
           m_midVisualGain(1),
           m_highVisualGain(1),
+          m_originalTrack(options.testFlag(Option::OriginalTrack)),
           m_axesColor_r(0),
           m_axesColor_g(0),
           m_axesColor_b(0),
@@ -161,6 +162,21 @@ void WaveformRendererSignalBase::getGains(float* pAllGain,
         float* pLowGain,
         float* pMidGain,
         float* pHighGain) {
+    if (m_originalTrack) {
+        if (pAllGain) {
+            *pAllGain = m_allChannelVisualGain;
+        }
+        if (pLowGain) {
+            *pLowGain = m_lowVisualGain;
+        }
+        if (pMidGain) {
+            *pMidGain = m_midVisualGain;
+        }
+        if (pHighGain) {
+            *pHighGain = m_highVisualGain;
+        }
+        return;
+    }
     if (pAllGain) {
         *pAllGain = static_cast<CSAMPLE_GAIN>(
                             m_waveformRenderer->getGain()) *

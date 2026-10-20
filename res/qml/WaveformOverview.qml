@@ -124,9 +124,9 @@ Item {
             normalized: Mixxx.Config.waveformOverviewNormalized
             renderer: Mixxx.Config.waveformOverviewType === 0 ? Mixxx.WaveformOverview.Renderer.Filtered : Mixxx.Config.waveformOverviewType === 1 ? Mixxx.WaveformOverview.Renderer.HSV : Mixxx.WaveformOverview.Renderer.RGB
             stereo: Mixxx.Config.waveformOverviewStereo
-            colorHigh: Theme.white
-            colorMid: Theme.blue
-            colorLow: Theme.green
+            colorHigh: renderer === Mixxx.WaveformOverview.Renderer.RGB ? '#0000ff' : Theme.white
+            colorMid: renderer === Mixxx.WaveformOverview.Renderer.RGB ? '#00ff00' : Theme.blue
+            colorLow: renderer === Mixxx.WaveformOverview.Renderer.RGB ? '#ff0000' : Theme.green
             group: root.group
         }
     }

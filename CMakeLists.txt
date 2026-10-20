@@ -77,7 +77,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL Android)
   endif()
   set(ANDROID_ABI arm64-v8a)
   set(ANDROID_NDK_HOST_SYSTEM_NAME linux-x86_64)
-  set(CMAKE_SYSTEM_VERSION 35) # API level
+  if(NOT DEFINED CMAKE_SYSTEM_VERSION)
+    set(CMAKE_SYSTEM_VERSION 35) # API level
+  endif()
   set(ANDROID_PLATFORM "android-${CMAKE_SYSTEM_VERSION}")
   set(ANDROID_API_VERSION "android-${CMAKE_SYSTEM_VERSION}")
   set(CMAKE_ANDROID_ARCH_ABI "${ANDROID_ABI}") # or x86_64, armeabi-v7a, etc.
@@ -265,7 +267,7 @@ function(fatal_error_missing_env)
   endif()
 endfunction()
 
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND NOT ANDROID)
   execute_process(
     COMMAND uname -r
     OUTPUT_VARIABLE UNAME_R
@@ -2411,6 +2413,10 @@ if(QT6)
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/packaging/android"
     )
     set_target_properties(mixxx PROPERTIES QT_ANDROID_ABIS "${ANDROID_ABI}")
+    set_target_properties(
+      mixxx
+      PROPERTIES QT_ANDROID_MIN_SDK_VERSION "${CMAKE_SYSTEM_VERSION}"
+    )
     set_target_properties(mixxx PROPERTIES QT_ANDROID_PACKAGE_NAME "org.mixxx")
     set_target_properties(
       mixxx
@@ -2967,6 +2973,7 @@ if(BUILD_TESTING)
     #TODO: write useful tests for refactored effects system
     #src/test/effectchainslottest.cpp
     src/test/enginebufferscalelineartest.cpp
+    src/test/androidmidistreamparser_test.cpp
     src/test/enginebuffertest.cpp
     src/test/enginefilterbiquadtest.cpp
     src/test/enginemixertest.cpp
@@ -3850,6 +3857,15 @@ if(PORTMIDI)
   )
 endif()
 
+if(ANDROID)
+  target_sources(
+    mixxx-lib
+    PRIVATE
+      src/controllers/midi/androidmidicontroller.cpp
+      src/controllers/midi/androidmidienumerator.cpp
+  )
+endif()
+
 # Protobuf
 add_subdirectory(src/proto)
 target_link_libraries(mixxx-lib PUBLIC mixxx-proto)
@@ -4052,6 +4068,7 @@ if(QML)
     mixxx-qml-lib
     PRIVATE
       src/qml/asyncimageprovider.cpp
+      src/qml/flx6filtercontroller.cpp
       src/qml/qmlapplication.cpp
       src/qml/qmlapplicationproxy.cpp
       src/qml/qmlautoreload.cpp
@@ -5351,6 +5368,14 @@ endif()
 
 # USB HID or/and Bulk controller support
 find_package(LibUSB)
+
+if(ANDROID)
+  if(NOT LibUSB_FOUND)
+    message(FATAL_ERROR "Android FLX6 direct USB audio requires libusb 1.0")
+  endif()
+  target_sources(mixxx-lib PRIVATE src/soundio/sounddeviceandroidusbflx6.cpp)
+  target_link_libraries(mixxx-lib PRIVATE LibUSB::LibUSB)
+endif()
 
 # USB HID controller support
 option(HID "USB HID controller support" ON)

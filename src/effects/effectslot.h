@@ -124,6 +124,7 @@ class EffectSlot : public QObject {
     unsigned int numParameters(EffectParameterType parameterType) const;
 
     void setEnabled(bool enabled);
+    void resetTimingToManifestDefault();
 
   public slots:
     void setMetaParameter(double v, bool force = false);
@@ -135,15 +136,19 @@ class EffectSlot : public QObject {
     void slotEffectSelector(double v);
     void slotPresetListVisibleChanged(bool visible);
     void slotEffectMetaParameter(double v, bool force = false);
+    void slotBeatTimeStep(double v);
+    void slotFxParameterStep(double v);
 
   signals:
     void effectChanged();
     void parametersChanged();
+    void parameterValueChanged();
     void presetListShowRequest(bool show);
 
   private slots:
     void updateEngineState();
     void visibleEffectsListChanged();
+    void updateBeatTime();
 
   private:
     QString debugString() const {
@@ -160,6 +165,9 @@ class EffectSlot : public QObject {
 
     void loadParameters();
     void unloadEffect();
+    EffectParameterPointer beatTimeParameter() const;
+    EffectParameterPointer parameterById(const QString& id) const;
+    void setEffectParameterValue(EffectParameterPointer pParameter, double value);
 
     const unsigned int m_iEffectNumber;
     QHash<EffectParameterType, unsigned int> m_iNumParameterSlots;
@@ -188,6 +196,13 @@ class EffectSlot : public QObject {
     std::unique_ptr<ControlObject> m_pControlPrevEffect;
     std::unique_ptr<ControlObject> m_pControlLoadedEffect;
     std::unique_ptr<ControlEncoder> m_pControlEffectSelector;
+    std::unique_ptr<ControlEncoder> m_pControlBeatTimeStep;
+    std::unique_ptr<ControlObject> m_pControlBeatTime;
+    std::unique_ptr<ControlObject> m_pControlBeatTimeSupported;
+    std::unique_ptr<ControlEncoder> m_pControlFxParameterStep;
+    std::unique_ptr<ControlObject> m_pControlFxParameterValue;
+    std::unique_ptr<ControlObject> m_pControlFxParameterType;
+    std::unique_ptr<ControlObject> m_pControlControllerSelected;
     std::unique_ptr<ControlObject> m_pControlClear;
     std::unique_ptr<ControlPotmeter> m_pControlMetaParameter;
     std::unique_ptr<ControlPushButton> m_pControlShowPresetList;

@@ -6,6 +6,7 @@
 #include <qstringliteral.h>
 #include <qvideosink.h>
 
+#include <QFileInfo>
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
 #include <algorithm>
@@ -40,6 +41,18 @@
 namespace {
 /// Number of sample frame timestamp sample to perform a smooth average FPS label.
 constexpr double kFrameSmoothAverageFactor = 20;
+
+bool sameMappingPath(const QString& first, const QString& second) {
+    if (first.isEmpty() || second.isEmpty()) {
+        return false;
+    }
+    if (first == second) {
+        return true;
+    }
+    const QString canonicalFirst = QFileInfo(first).canonicalFilePath();
+    return !canonicalFirst.isEmpty() &&
+            canonicalFirst == QFileInfo(second).canonicalFilePath();
+}
 } // namespace
 
 namespace mixxx {
@@ -341,6 +354,11 @@ QmlControllerDeviceProxy::Type QmlControllerDeviceProxy::getType() const {
     return static_cast<QmlControllerDeviceProxy::Type>(
             m_pInternal->getDataRepresentationProtocol());
 }
+bool QmlControllerDeviceProxy::supportsProductEditing() const {
+    return m_productInfo.has_value() ||
+            (m_pInternal->getVendorId().value_or(0) != 0 &&
+                    m_pInternal->getProductId().value_or(0) != 0);
+}
 QString QmlControllerDeviceProxy::getName() const {
     if (!m_editedFriendlyName.trimmed().isEmpty()) {
         return m_editedFriendlyName;
@@ -430,20 +448,18 @@ void QmlControllerDeviceProxy::clear() {
     emit visualUrlChanged();
 
     std::shared_ptr<LegacyControllerMapping> pSelectedMapping = m_pInternal->getMapping();
+    m_pMapping = nullptr;
     for (const auto& pMapping : std::as_const(m_mappings)) {
-        if (pSelectedMapping && pSelectedMapping->filePath() == pMapping->definition().getPath()) {
+        if (pSelectedMapping && sameMappingPath(
+                pSelectedMapping->filePath(), pMapping->definition().getPath())) {
             m_pMapping = pMapping;
+            break;
         }
     }
-    if (!m_mappings.isEmpty()) {
+    if (!m_pMapping && !m_mappings.isEmpty()) {
         m_pMapping = *m_mappings.cbegin();
     }
     emit mappingChanged();
-    // FIXME if using a mapping that didn't match the product, we need to fetch
-    // it from COntrollerManager if (pMapping && !m_pMapping){
-    //     m_pMapping = new
-    //     QmlControllerMappingProxy(pMapping->m_productMatches, this);
-    // }
     clearEdited();
 }
 bool QmlControllerDeviceProxy::save(const QmlConfigProxy* pConfig) {
@@ -461,6 +477,9 @@ bool QmlControllerDeviceProxy::save(const QmlConfigProxy* pConfig) {
             mapping = LegacyControllerMappingFileHandler::loadMapping(
                     QFileInfo(m_pMapping->definition().getPath()),
                     QDir(resourceMappingsPath(pConfig->get())));
+            if (mapping) {
+                mapping->loadSettings(pConfig->get(), m_pInternal->getName());
+            }
             setInstanceFor(m_pMapping->definition().getPath(), mapping);
         }
         VERIFY_OR_DEBUG_ASSERT(mapping) {
@@ -470,14 +489,23 @@ bool QmlControllerDeviceProxy::save(const QmlConfigProxy* pConfig) {
             mapping->saveSettings(pConfig->get(), m_pInternal->getName());
         }
 
-        bool mappingChanged = false;
+        const auto activeMapping = m_pInternal->getMapping();
+        const bool changingMapping = !activeMapping ||
+                !sameMappingPath(activeMapping->filePath(),
+                        m_pMapping->definition().getPath());
+        const bool hasProductIds = m_pInternal->getVendorId().value_or(0) != 0 &&
+                m_pInternal->getProductId().value_or(0) != 0;
+        const bool editingProductInfo = m_editedVisualUrl.isValid() ||
+                !m_editedFriendlyName.isEmpty();
+        const bool addingProductMatch = !m_productInfo.has_value() &&
+                hasProductIds && (changingMapping || editingProductInfo);
+        bool mappingChanged = addingProductMatch;
         ProductInfo productInfo;
-        if (!m_productInfo.has_value()) {
-            mappingChanged = true;
+        if (addingProductMatch) {
             productInfo.vendor_id = QStringLiteral("0x%1").arg(
-                    m_pInternal->getVendorId().value_or(0), 4, 16, QChar('0'));
+                    m_pInternal->getVendorId().value(), 4, 16, QChar('0'));
             productInfo.product_id = QStringLiteral("0x%1").arg(
-                    m_pInternal->getProductId().value_or(0), 4, 16, QChar('0'));
+                    m_pInternal->getProductId().value(), 4, 16, QChar('0'));
             productInfo.interface_number = QStringLiteral("0x%1").arg(
                     m_pInternal->getUsbInterfaceNumber().value_or(0),
                     1,
@@ -526,17 +554,19 @@ bool QmlControllerDeviceProxy::save(const QmlConfigProxy* pConfig) {
                 return false;
             }
             }
-        } else {
+        } else if (m_productInfo.has_value()) {
             productInfo = m_productInfo.value();
         }
 
         // if visual, friendlyName or productMatching update
-        if (m_editedVisualUrl.isValid()) {
+        if ((m_productInfo.has_value() || addingProductMatch) &&
+                m_editedVisualUrl.isValid()) {
             mappingChanged = true;
             productInfo.visualUrl = m_editedVisualUrl;
             m_editedVisualUrl.clear();
         }
-        if (!m_editedFriendlyName.isEmpty()) {
+        if ((m_productInfo.has_value() || addingProductMatch) &&
+                !m_editedFriendlyName.isEmpty()) {
             mappingChanged = true;
             productInfo.friendlyName = m_editedFriendlyName;
             m_editedFriendlyName.clear();
@@ -560,8 +590,7 @@ bool QmlControllerDeviceProxy::save(const QmlConfigProxy* pConfig) {
                 emit mappingCreated(getType(), MappingInfo(QFileInfo(newMappingFileName)));
             }
             // If the device was "known" till now
-            if (!m_productInfo.has_value()) {
-                DEBUG_ASSERT(m_mappings.isEmpty());
+            if (addingProductMatch) {
                 m_productInfo = productInfo;
                 m_mappings.insert(m_pMapping);
                 emit deviceLearned();
@@ -688,19 +717,42 @@ void QmlControllerManagerProxy::refreshKnownDevices() {
                 16,
                 QChar('0'));
 
-        auto foundDevice = std::find_if(m_knownDevices.constKeyValueBegin(),
-                m_knownDevices.constKeyValueEnd(),
-                [vendor_id, product_id, interface_number](const auto& it) {
-                    return it.first.vendor_id == vendor_id &&
-                            it.first.product_id == product_id &&
-                            it.first.interface_number == interface_number;
-                    // TODO add protocol
-                });
+        auto foundDevice = m_knownDevices.constKeyValueEnd();
+        if (pController->getVendorId().value_or(0) != 0 &&
+                pController->getProductId().value_or(0) != 0) {
+            foundDevice = std::find_if(m_knownDevices.constKeyValueBegin(),
+                    m_knownDevices.constKeyValueEnd(),
+                    [vendor_id, product_id, interface_number](const auto& it) {
+                        return it.first.vendor_id == vendor_id &&
+                                it.first.product_id == product_id &&
+                                it.first.interface_number == interface_number;
+                    });
+        }
+        QmlControllerMappingProxy* pActiveMapping = nullptr;
+        if (const auto activeMapping = pController->getMapping()) {
+            const auto type = static_cast<QmlControllerDeviceProxy::Type>(
+                    pController->getDataRepresentationProtocol());
+            for (auto* pMapping : m_knownMappings.value(type)) {
+                if (sameMappingPath(activeMapping->filePath(),
+                            pMapping->definition().getPath())) {
+                    pActiveMapping = pMapping;
+                    break;
+                }
+            }
+        }
         m_knownControllers.append(pController);
         QmlControllerDeviceProxy* device;
         if (foundDevice != m_knownDevices.constKeyValueEnd()) {
+            auto mappings = foundDevice->second;
+            if (pActiveMapping) {
+                mappings.insert(pActiveMapping);
+            }
             device = new QmlControllerDeviceProxy(
-                    pController, foundDevice->first, foundDevice->second, this);
+                    pController, foundDevice->first, mappings, this);
+            m_knownDevicesFound.append(device);
+        } else if (pActiveMapping) {
+            device = new QmlControllerDeviceProxy(
+                    pController, std::nullopt, {pActiveMapping}, this);
             m_knownDevicesFound.append(device);
         } else {
             device = new QmlControllerDeviceProxy(

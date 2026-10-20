@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QList>
 #include <QSet>
+#include <QTimer>
 
 #include "control/controlpotmeter.h"
 #include "effects/backends/effectsbackendmanager.h"
@@ -80,6 +81,7 @@ class EffectsManager {
     }
 
     bool isAdoptMetaknobSettingEnabled() const;
+    void saveEffectsXml();
 
   private:
     void addStandardEffectChains();
@@ -91,7 +93,6 @@ class EffectsManager {
     void readEffectsXml();
     void readEffectsXmlSingleDeck(const QString& deckGroup);
     void readEffectsXmlSingleDeckStem(const QString& deckStemGroup);
-    void saveEffectsXml();
 
     QSet<ChannelHandleAndGroup> m_registeredInputChannels;
     QSet<ChannelHandleAndGroup> m_registeredOutputChannels;
@@ -123,6 +124,8 @@ class EffectsManager {
     // and QuickEffect chains) have been initialized, either with defaults or the
     // previous state read from effects.xml
     bool m_initializedFromEffectsXml;
+    bool m_autoSaveReady = false;
+    QTimer m_saveTimer;
 
     DISALLOW_COPY_AND_ASSIGN(EffectsManager);
 };

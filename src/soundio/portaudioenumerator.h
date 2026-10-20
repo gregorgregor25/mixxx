@@ -30,6 +30,9 @@ class PortAudioEnumerator : public SoundDeviceEnumerator {
     void setJACKName() const;
 
     std::vector<QSharedPointer<SoundDevicePortAudio>> m_devices;
+#ifdef Q_OS_ANDROID
+    SoundDevicePointer m_directDevice;
+#endif
     mixxx::audio::SampleRate m_jackSampleRate;
 
     UserSettingsPointer m_pConfig;

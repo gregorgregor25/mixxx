@@ -4,6 +4,7 @@ import QtQuick 2.12
 import QtQuick.Controls
 import QtQuick.Window 2.12
 import "Theme"
+import "Obsidian" as Obsidian
 
 ApplicationWindow {
     id: root
@@ -51,11 +52,17 @@ ApplicationWindow {
                 Qt.quit()
             }
         }
-        sourceComponent: Component {
+        sourceComponent: Qt.platform.os === "android" ? tabletWindow : desktopWindow
+    }
+    Component {
+        id: tabletWindow
+        Obsidian.MainWindow { applicationWindow: root }
+    }
+    Component {
+        id: desktopWindow
             MainWindow {
                 applicationWindow: root
             }
-        }
     }
     Rectangle {
         id: splash
